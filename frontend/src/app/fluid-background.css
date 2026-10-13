@@ -1,0 +1,15 @@
+/* A quiet fallback also covers reduced motion / unavailable WebGL. */
+html { background: #050709; }
+body { isolation: isolate; background: radial-gradient(ellipse at 12% 28%, #122634 0, transparent 50%), radial-gradient(ellipse at 88% 80%, #281626 0, transparent 45%), #050709 !important; }
+#gx-fluid { position: fixed; inset: 0; width: 100%; height: 100%; z-index: -1; pointer-events: none; opacity: .7; }
+#gx-fluid[hidden] { display: none; }
+@media (prefers-reduced-motion: reduce) { #gx-fluid { display: none; } }
+
+/* Background-only adaptation. Existing cards, controls and layout are retained. */
+.app-shell { background: transparent !important; }
+.brand h1, .brand-caption, .section-caption, .section-caption .muted, .page-footer { color: #e4e8ee; }
+.dashboard .category-list [data-slot="tabs-trigger"] { color: #ccd3dd !important; }
+.dashboard .category-list [data-slot="tabs-trigger"] > span { color: #aebaca; }
+.dashboard .category-list [data-state="active"] { color: #245c43 !important; }
+.dashboard .category-list [data-state="active"] > span { color: #477457; }
+.page-footer, .dashboard .category-list { border-color: #ffffff26; }

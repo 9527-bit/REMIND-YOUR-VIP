@@ -1,5 +1,7 @@
 # 第三方组件声明
 
+背景流体使用 Pavel Dobryakov 的 WebGL Fluid Simulation（MIT），固定上游版本 a2d292931f19d9b3b9f564e23e6c32729d2121c3；经 Gx404 适配，移除演示控件、外部资源与统计。完整 MIT 许可保留在 frontend/public/gx404/fluid.js 文件头。
+
 本项目使用 React、Vite、TypeScript、Express、Zod、Radix UI、Lucide、Tailwind CSS、Sonner 等第三方组件。具体依赖和锁定版本以各工作区的 package.json 与根目录 package-lock.json 为准；各组件适用其自身许可证。
 
 后端邮件传输使用 [Nodemailer](https://nodemailer.com/smtp)，锁定版本 10.0.16，MIT-0 许可；依赖包内保留原许可证。仅使用 SMTP，不依赖其商业服务。
