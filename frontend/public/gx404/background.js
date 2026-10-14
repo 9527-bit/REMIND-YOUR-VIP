@@ -8,7 +8,7 @@
   const motion = matchMedia('(prefers-reduced-motion: reduce)');
   let engine, timer, seeded = false, active = null, lost = false;
   const allowed = () => !motion.matches && !document.hidden && !lost;
-  const stop = () => { clearTimeout(timer); timer = null; active = null; };
+  const stop = () => { clearTimeout(timer); timer = null; if (active !== null) engine?.end(active); active = null; };
   function seed() {
     if (seeded || !engine || !allowed()) return;
     seeded = true;
@@ -22,13 +22,17 @@
     }
     splash();
   }
-  function sync() {
+  function sync(resume = false) {
     if (!allowed()) { stop(); engine?.setPaused(true); return; }
     if (!engine) {
       try { engine = window.createGX404Fluid(canvas); }
       catch { canvas.hidden = true; return; }
     }
     engine.setPaused(false);
+    if (resume) {
+      engine.resize();
+      engine.wake?.();
+    }
     seed();
   }
   const interactive = 'a,button,input,select,textarea,[contenteditable],label,[role="button"],x-peer,x-dialog,header,footer,.subscription-card,.subscription-row,.overview';
@@ -45,10 +49,12 @@
     active = null;
   }, { passive: true });
   window.addEventListener('resize', () => engine?.resize(), { passive: true });
-  document.addEventListener('visibilitychange', sync);
-  motion.addEventListener('change', sync);
+  document.addEventListener('visibilitychange', () => sync(!document.hidden));
+  motion.addEventListener('change', () => sync(true));
   canvas.addEventListener('webglcontextlost', () => { lost = true; stop(); engine?.setPaused(true); canvas.hidden = true; });
   window.addEventListener('pagehide', () => { stop(); engine?.setPaused(true); });
-  window.addEventListener('pageshow', sync);
+  window.addEventListener('pageshow', () => sync(true));
+  window.addEventListener('focus', () => sync(true));
+  window.addEventListener('blur', stop);
   sync();
 })();
