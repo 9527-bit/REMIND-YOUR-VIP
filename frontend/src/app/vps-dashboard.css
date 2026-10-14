@@ -126,8 +126,7 @@ body { font-size: 14px; }
 .subscription-card.soon { border-color: var(--border); }
 .subscription-card.expired { border-color: var(--border); }
 .subscription-card .card-heading { gap: 9px; }
-.subscription-card .service-logo { width: 30px; height: 30px; border-radius: 7px; }
-.subscription-card .service-logo img { width: 28px; height: 28px; }
+.subscription-card .service-logo { --logo-size: 44px; width: var(--logo-size); height: var(--logo-size); }
 .subscription-card .service-name h2 { color: var(--foreground); font-size: 14px; font-weight: 700; }
 .subscription-card .service-name p { color: var(--muted-foreground); font-size: 11px; margin-top: 1px; }
 .membership-status { width: 6px; height: 6px; border-radius: 50%; background: var(--success); flex-shrink: 0; margin: 0 4px; }
@@ -265,3 +264,61 @@ body { font-size: 14px; }
   .brand-caption { font-size: 11px; }
 }
 @media (prefers-reduced-motion: reduce) { .subscription-card, .button { transition: none; } }
+
+/* Brand artwork stays large and sharp; this resets legacy padding and flex shrinking. */
+.service-logo {
+  --logo-size: 36px;
+  width: var(--logo-size);
+  height: var(--logo-size);
+  flex: 0 0 var(--logo-size);
+  display: grid;
+  place-items: center;
+  padding: 5px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface-sunken);
+  overflow: hidden;
+  box-shadow: 0 1px 2px #00000006;
+}
+.service-logo img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  object-fit: contain;
+  border-radius: 0;
+  flex-shrink: 0;
+}
+.service-logo.logo-app { padding: 0; background: transparent; border-color: #0000000c; }
+.service-logo.logo-app img { width: 100%; height: 100%; }
+.service-logo.logo-wordmark { padding: 1px; }
+.service-logo.logo-wordmark img { width: 100%; height: 100%; }
+.service-logo.logo-initial { background: color-mix(in srgb,var(--brand-color) 12%,var(--surface)); color: var(--brand-color); }
+.service-logo.logo-initial > span { font-size: 20px; line-height: 1; }
+:root[data-appearance="dark"] .service-logo.logo-initial { color: var(--foreground); }
+:root[data-appearance="dark"] .service-logo[data-brand="grok"] img,
+:root[data-appearance="dark"] .service-logo[data-brand="github"] img,
+:root[data-appearance="dark"] .service-logo[data-brand="notion"] img,
+:root[data-appearance="dark"] .service-logo[data-brand="cursor"] img,
+:root[data-appearance="dark"] .service-logo[data-brand="midjourney"] img,
+:root[data-appearance="dark"] .service-logo[data-brand="apple-tv"] img,
+:root[data-appearance="dark"] .service-logo[data-brand="capcut"] img,
+:root[data-appearance="dark"] .service-logo[data-brand="github-copilot"] img,
+:root[data-appearance="dark"] .service-logo[data-brand="manus"] img { filter: invert(1); }
+.subscription-card .card-heading { gap: 12px; }
+.subscription-row .service-logo { --logo-size: 36px; width: var(--logo-size); height: var(--logo-size); padding: 6px; border-radius: 10px; }
+.subscription-row .service-logo img { width: 100%; height: 100%; }
+.subscription-row .service-logo.logo-app { padding: 0; }
+.subscription-row .service-logo.logo-wordmark { padding: 1px; }
+.report-ranked .service-logo { --logo-size: 30px; width: var(--logo-size); height: var(--logo-size); padding: 5px; border-radius: 8px; }
+.report-ranked .service-logo img { width: 100%; height: 100%; }
+.report-ranked .service-logo.logo-app { padding: 0; }
+.report-ranked .service-logo.logo-wordmark { padding: 1px; }
+.header-toolbox .header-utility svg, .theme-toggle svg { width: 18px; height: 18px; stroke-width: 1.8; }
+.subscription-card .small-label svg, .membership-expiry svg { width: 14px; height: 14px; stroke-width: 1.8; }
+.overview .summary-label svg { width: 16px; height: 16px; stroke-width: 1.8; }
+@media (max-width: 640px) {
+  .subscription-card .service-logo { --logo-size: 40px; }
+  .subscription-row .service-logo { --logo-size: 32px; }
+}

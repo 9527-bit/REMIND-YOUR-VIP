@@ -8,7 +8,7 @@ export const brands: readonly Brand[] = [
   { key: "claude", label: "Claude", icon: "/brands/claude.svg", aliases: ["claude", "anthropic"] },
   { key: "deepseek", label: "DeepSeek", icon: "/brands/deepseek.svg", aliases: ["deepseek", "深度求索"] },
   { key: "gemini", label: "Gemini", icon: "/brands/gemini.svg", aliases: ["gemini", "googlegemini"] },
-  { key: "taobao", label: "淘宝 / 88VIP", icon: "/brands/taobao.svg", aliases: ["淘宝", "88vip", "taobao"] },
+  { key: "taobao", label: "淘宝 / 88VIP", icon: "/brands/taobao.ico", aliases: ["淘宝", "88vip", "taobao"] },
   { key: "jd", label: "京东 / PLUS", icon: "/brands/jd.png", aliases: ["京东", "jdplus", "jdcom", "jingdong"] },
   { key: "hema", label: "盒马", icon: "/brands/hema.png", aliases: ["盒马", "hema", "freshippo"] },
   { key: "netease-music", label: "网易云音乐", icon: "/brands/neteasecloudmusic.svg", aliases: ["网易云音乐", "网易云黑胶", "网易云", "neteasemusic", "cloudmusic"] },

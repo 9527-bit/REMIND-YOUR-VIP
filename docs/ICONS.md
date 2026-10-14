@@ -11,7 +11,7 @@
 | Claude | Claude、Anthropic | [LobeHub Claude SVG](https://github.com/lobehub/lobe-icons/blob/master/packages/static-svg/icons/claude-color.svg) |
 | DeepSeek | DeepSeek、深度求索 | [LobeHub DeepSeek SVG](https://github.com/lobehub/lobe-icons/blob/master/packages/static-svg/icons/deepseek-color.svg) |
 | Gemini | Gemini、Google Gemini | [LobeHub Gemini SVG](https://github.com/lobehub/lobe-icons/blob/master/packages/static-svg/icons/gemini-color.svg) |
-| 淘宝 / 88VIP | 淘宝、88VIP、Taobao | [Simple Icons Taobao SVG](https://github.com/simple-icons/simple-icons/blob/develop/icons/taobao.svg) |
+| 淘宝 / 88VIP | 淘宝、88VIP、Taobao | [淘宝官网图标](https://www.taobao.com/favicon.ico)，本地保留 64×64 的橙色“淘”应用图标 |
 | 网易云音乐 | 网易云音乐、网易云黑胶、网易云、NeteaseMusic、CloudMusic | [Simple Icons NetEase Cloud Music SVG](https://github.com/simple-icons/simple-icons/blob/develop/icons/neteasecloudmusic.svg) |
 | 哔哩哔哩 | 哔哩哔哩、Bilibili、B站 | [Simple Icons Bilibili SVG](https://github.com/simple-icons/simple-icons/blob/develop/icons/bilibili.svg) |
 | iCloud | iCloud、iCloud+、苹果云盘 | [Simple Icons iCloud SVG](https://github.com/simple-icons/simple-icons/blob/develop/icons/icloud.svg)，本地填色 #4f8ee8 |
