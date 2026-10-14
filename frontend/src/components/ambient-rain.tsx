@@ -57,7 +57,6 @@ export function AmbientRain() {
     let drops: RainDrop[] = [];
     let frame = 0;
     let lastTime = performance.now();
-    let hiddenAt: number | null = document.hidden ? lastTime : null;
 
     const resize = () => {
       const bounds = canvas.getBoundingClientRect();
@@ -83,8 +82,6 @@ export function AmbientRain() {
       context.strokeStyle = dark ? "#bae6fd" : "#475569";
       context.lineCap = "round";
       for (const drop of drops) {
-        const previousX = drop.x;
-        const previousY = drop.y;
         drop.x += drop.vx * delta;
         drop.y += drop.vy * drop.depth * delta;
         if (drop.y > height + drop.size * 3 || drop.x < -80 || drop.x > width + 80) {
@@ -94,7 +91,7 @@ export function AmbientRain() {
         context.globalAlpha = drop.alpha;
         context.lineWidth = drop.depth < 0.68 ? 0.55 : 0.9;
         context.beginPath();
-        context.moveTo(previousX, previousY);
+        context.moveTo(drop.x, drop.y);
         context.lineTo(drop.x - drop.size * 0.16, drop.y + drop.size);
         context.stroke();
       }
@@ -116,11 +113,9 @@ export function AmbientRain() {
     };
     const onVisibilityChange = () => {
       if (document.hidden) {
-        hiddenAt ??= performance.now();
         stop();
         return;
       }
-      hiddenAt = null;
       lastTime = performance.now();
       start();
     };
@@ -134,7 +129,6 @@ export function AmbientRain() {
       window.removeEventListener("resize", resize);
       document.removeEventListener("visibilitychange", onVisibilityChange);
       context.clearRect(0, 0, width, height);
-      hiddenAt = null;
     };
   }, []);
 
