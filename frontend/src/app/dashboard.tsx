@@ -26,6 +26,7 @@ import { CurrencyFields, type CurrencyDraft } from "@/components/currency-fields
 import { DashboardOverview } from "@/components/dashboard-overview";
 import { CompactDialogHeader, ContextHelp } from "@/components/context-help";
 import { EmailReminders } from "@/components/email-reminders";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 const categoryIcons = { "影音娱乐": Music2, "购物电商": ShoppingBag, "AI 工具": Sparkles, "云存储": Cloud, "办公效率": BriefcaseBusiness, "设计与创作": Palette, "云服务与网络": Globe, "生活服务": Coffee, "游戏会员": Gamepad2, "学习教育": GraduationCap, "其他服务": LayoutGrid };
 const currency = (n: number) => formatCurrency(n, "CNY");
@@ -379,11 +380,11 @@ export default function Dashboard() {
   const footerTime = clock.toLocaleString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).replaceAll("/", ".");
 
   return <div className="app-shell">
-    <div className="ambient" aria-hidden="true" />
     <main className="dashboard">
       <header className={`topbar${authRequired ? " guest-topbar" : ""}`}>
         <div className="brand"><h1>Gx404<span className="brand-dot">.</span></h1><span className="brand-divider" /><span className="brand-caption">会员看板</span></div>
         <div className="header-actions">
+          <ThemeToggle />
           {!authRequired && <div className="header-toolbox" role="toolbar" aria-label="会员工具">
             <button className={`button header-utility${reportOpen ? " is-active" : ""}`} aria-label={reportOpen ? "返回看板" : "支出分析"} title={reportOpen ? "返回看板" : "支出分析"} onClick={() => setReportOpen(value => !value)}><BarChart3 size={17} /><span>{reportOpen ? "返回看板" : "支出分析"}</span></button>
             <button className={`button header-utility notification-button${due.length ? " has-reminders" : ""}`} aria-label={`提醒中心${due.length ? `，${due.length} 项待查看` : ""}`} title="提醒中心" onClick={() => setShowReminders(true)}><Bell size={17} /><span>提醒中心</span>{due.length > 0 && <b aria-hidden="true">{due.length}</b>}</button>

@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { Ellipsis } from "lucide-react";
+import { CalendarDays, Clock3, Ellipsis, Wallet } from "lucide-react";
 import { ServiceLogo } from "@/components/service-logo";
 import { Progress } from "@/components/ui/progress";
 import { cycles, periodPercentage, progressColor, remaining, stateOf, type Subscription } from "@/lib/subscriptions";
@@ -21,20 +21,18 @@ export function SubscriptionCard({ item, today, canManage, onEdit }: Props) {
     <div className="card-heading">
       <ServiceLogo name={item.name} color={item.color} />
       <div className="service-name"><h2 title={item.name}>{item.name}</h2><p title={metadata}>{metadata}</p></div>
+      <span className={`membership-status ${status}`} role="img" aria-label={statusLabel ?? "正常"} title={statusLabel ?? "正常"} />
       {canManage && <div className="card-actions"><button className="icon-button" aria-label={`编辑${item.name}`} onClick={onEdit}><Ellipsis size={20} /></button></div>}
     </div>
-    <div className="remaining-block">
-      <div><div className="small-label">{days < 0 ? "已过期" : "剩余时间"}</div><div className="remaining-number">{Math.abs(days)}<span>天</span></div></div>
-      <time className="expiry-date" dateTime={item.endDate}>{item.endDate.replaceAll("-", ".")} 到期</time>
+    <div className="membership-metrics">
+      <div className="membership-metric"><div className="small-label"><Clock3 size={13} />{days < 0 ? "已过期" : "剩余时间"}</div><div className="remaining-number">{Math.abs(days)}<span>天</span></div></div>
+      <div className="membership-metric"><div className="small-label"><Wallet size={13} />续费金额</div><div className="membership-price"><CurrencyAmount amount={item.amount} currency={item.currency} /><small> / {item.cycle === "custom" ? `${item.customDays}天` : cycles[item.cycle].replace("付", "")}</small></div></div>
     </div>
     <div className="progress-caption">
       {statusLabel ? <span className={`card-status ${days <= 0 ? "expired" : "soon"}`}>{statusLabel}</span> : <span>{periodLabel}</span>}
       <span>{progress}%</span>
     </div>
     <Progress value={progress} aria-label={progressLabel} aria-valuetext={progressLabel} title={progressLabel} className={`segments${progress === 0 ? " is-empty" : ""}`} style={{ "--segment-color": progressColor(progress) } as CSSProperties} />
-    <div className="card-metrics">
-      <span className="small-label">续费金额</span>
-      <p><CurrencyAmount amount={item.amount} currency={item.currency} /><small> / {item.cycle === "custom" ? `${item.customDays}天` : cycles[item.cycle].replace("付", "")}</small></p>
-    </div>
+    <div className="membership-expiry"><span><CalendarDays size={13} />到期日期</span><time dateTime={item.endDate}>{item.endDate.replaceAll("-", ".")}</time></div>
   </article>;
 }
