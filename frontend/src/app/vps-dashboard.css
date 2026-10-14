@@ -25,6 +25,8 @@
   --warning-bg: #fff7e8;
   --danger-bg: #fff0f0;
   --progress-track: #e4e4e7;
+  --rain-line: rgba(92, 103, 118, .16);
+  --rain-line-soft: rgba(92, 103, 118, .08);
 }
 :root[data-appearance="dark"] {
   color-scheme: dark;
@@ -52,6 +54,8 @@
   --warning-bg: #40382a;
   --danger-bg: #413039;
   --progress-track: #353d49;
+  --rain-line: rgba(222, 231, 242, .13);
+  --rain-line-soft: rgba(222, 231, 242, .07);
 }
 :root {
   --card: var(--surface);
@@ -62,8 +66,22 @@
 }
 html, body, .app-shell { background: var(--background); color: var(--foreground); }
 body { font-size: 14px; }
-.app-shell { min-height: 100vh; }
-.dashboard { max-width: 1600px; padding: 20px 32px 24px; }
+.app-shell { min-height: 100vh; position: relative; isolation: isolate; }
+.app-shell::before, .app-shell::after { content: ""; position: fixed; inset: -35vh -25vw; pointer-events: none; z-index: -1; will-change: transform; }
+.app-shell::before {
+  opacity: .9;
+  background-image: repeating-linear-gradient(106deg, transparent 0 31px, var(--rain-line) 32px, transparent 33px 92px), repeating-linear-gradient(106deg, transparent 0 71px, var(--rain-line-soft) 72px, transparent 73px 168px);
+  background-size: 116px 146px, 203px 224px;
+  animation: gx-vps-rain 2.8s linear infinite;
+}
+.app-shell::after {
+  opacity: .72;
+  background-image: repeating-linear-gradient(106deg, transparent 0 47px, var(--rain-line-soft) 48px, transparent 49px 127px);
+  background-size: 167px 191px;
+  animation: gx-vps-rain 4.4s linear infinite reverse;
+}
+@keyframes gx-vps-rain { from { transform: translate3d(0, -72px, 0); } to { transform: translate3d(-105px, 128px, 0); } }
+.dashboard { max-width: 1600px; padding: 20px 32px 24px; position: relative; z-index: 1; }
 .topbar { min-height: 32px; margin-bottom: 18px; gap: 18px; }
 .brand { gap: 10px; }
 .brand h1 { color: var(--foreground); font-size: 20px; font-weight: 750; letter-spacing: -.045em; }
@@ -264,6 +282,7 @@ body { font-size: 14px; }
   .brand-caption { font-size: 11px; }
 }
 @media (prefers-reduced-motion: reduce) { .subscription-card, .button { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .app-shell::before, .app-shell::after { animation: none; } }
 
 /* Brand artwork stays large and sharp; this resets legacy padding and flex shrinking. */
 .service-logo {
