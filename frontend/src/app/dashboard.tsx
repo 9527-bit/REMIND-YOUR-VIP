@@ -27,6 +27,7 @@ import { DashboardOverview } from "@/components/dashboard-overview";
 import { CompactDialogHeader, ContextHelp } from "@/components/context-help";
 import { EmailReminders } from "@/components/email-reminders";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { AmbientRain } from "@/components/ambient-rain";
 
 const categoryIcons = { "影音娱乐": Music2, "购物电商": ShoppingBag, "AI 工具": Sparkles, "云存储": Cloud, "办公效率": BriefcaseBusiness, "设计与创作": Palette, "云服务与网络": Globe, "生活服务": Coffee, "游戏会员": Gamepad2, "学习教育": GraduationCap, "其他服务": LayoutGrid };
 const currency = (n: number) => formatCurrency(n, "CNY");
@@ -380,6 +381,7 @@ export default function Dashboard() {
   const footerTime = clock.toLocaleString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).replaceAll("/", ".");
 
   return <div className="app-shell">
+    <AmbientRain />
     <main className="dashboard">
       <header className={`topbar${authRequired ? " guest-topbar" : ""}`}>
         <div className="brand"><h1>Gx404<span className="brand-dot">.</span></h1><span className="brand-divider" /><span className="brand-caption">会员看板</span></div>
