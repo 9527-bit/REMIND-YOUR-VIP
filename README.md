@@ -1,5 +1,7 @@
 # VIP Manager · 会员到期看板
 
+> **致谢与来源声明**：本项目基于 [Gx404/vip-manager](https://github.com/Gx404/vip-manager) 进行二次开发与 UI/UX 深度体验优化。感谢原作者 [Gx404](https://github.com/Gx404) 的开源贡献！
+
 把视频会员、AI 工具、网盘和其他订阅放在一个页面，查看到期时间、续费金额和提前提醒。浅灰背景、白色卡片、顶部总览和剩余时长条，适合放在自己的服务器上使用。
 
 **前后端分离，数据存到自己的 SQLite 数据库。不依赖 ChatGPT 登录、第三方托管平台或 Komari。**
@@ -132,3 +134,9 @@ npm run package
 数据保存在 Docker 命名卷中。正常重启、重建和 `docker compose down` 不删除数据；**不要使用 `docker compose down -v`**。更新前请先 [备份](docs/OPERATIONS.md)。旧演示站的数据不会自动同步或迁移到自托管版本。
 
 项目自身的开源许可证尚未选定，仓库可见性也不代表已授予开源许可。公开分发前由维护者确认授权方式；第三方组件保留各自的许可证。不要删除已有的第三方许可声明。
+
+## 来源与致谢 (Upstream & Attribution)
+
+- 原开源仓库：[Gx404/vip-manager](https://github.com/Gx404/vip-manager)
+- 原项目作者：[@Gx404](https://github.com/Gx404)
+- 本仓库在保留原有后端服务架构、SQLite 数据存储、邮件通知及自动化账期逻辑的基础上，对前端界面进行了全面的深浅色模式重构、极客卡片视觉增强以及多形态支出分析大盘的深度优化。感谢原作者的开源分享！

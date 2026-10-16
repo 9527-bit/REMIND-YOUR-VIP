@@ -24,6 +24,7 @@ import { SubscriptionCard } from "@/components/subscription-card";
 import { ReportPage } from "@/components/report-page";
 import { CurrencyFields, type CurrencyDraft } from "@/components/currency-fields";
 import { DashboardOverview } from "@/components/dashboard-overview";
+import { GlobalAnalyticsDashboard } from "@/components/global-analytics-dashboard";
 import { CompactDialogHeader, ContextHelp } from "@/components/context-help";
 import { EmailReminders } from "@/components/email-reminders";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -384,7 +385,7 @@ export default function Dashboard() {
     <AmbientRain />
     <main className="dashboard">
       <header className={`topbar${authRequired ? " guest-topbar" : ""}`}>
-        <div className="brand"><h1>Gx404<span className="brand-dot">.</span></h1><span className="brand-divider" /><span className="brand-caption">会员看板</span></div>
+        <div className="brand"><h1>今晚打老虎<span className="brand-dot">.</span></h1><span className="brand-divider" /><span className="brand-caption">会员看板</span></div>
         <div className="header-actions">
           <ThemeToggle />
           {!authRequired && <div className="header-toolbox" role="toolbar" aria-label="会员工具">
@@ -402,7 +403,19 @@ export default function Dashboard() {
       {!loading && authRequired && !publicDashboard && !syncError && <div className="auth-banner"><ShieldCheck size={16} /><span>请登录查看订阅。</span><button onClick={() => setLoginOpen(true)}>登录后管理</button></div>}
 
       {!authRequired && reportOpen ? <ReportPage items={items} today={today} revision={historyOpen} onHistory={id => { setHistoryItem(items.find(item=>item.id===id) ?? null); setHistoryOpen(true); }} onBack={() => setReportOpen(false)} /> : <>
-      <DashboardOverview items={items} today={today} monthly={monthly} canManage={!authRequired} onCosts={() => setShowCostBreakdown(true)} />
+      <GlobalAnalyticsDashboard
+        items={items}
+        today={today}
+        monthly={monthly}
+        canManage={!authRequired}
+        selectedCategory={category}
+        onSelectCategory={setCategory}
+        onSelectSubscription={(id) => {
+          const item = items.find((i) => i.id === id);
+          if (item) edit(item);
+        }}
+        onOpenCostsBreakdown={() => setShowCostBreakdown(true)}
+      />
 
       <div className="section-toolbar"><div className="section-caption"><span className="live-dot" /><span>我的订阅</span><span className="muted">{items.length} 项</span></div><div className="toolbar-actions"><label className="search"><Search size={15} /><input aria-label="搜索订阅" placeholder="搜索订阅…" value={query} onChange={e => setQuery(e.target.value)} /></label><Select value={sort} onValueChange={setSort}><SelectTrigger className="sort-control" aria-label="排序方式"><SlidersHorizontal size={15} /><SelectValue /></SelectTrigger><SelectContent><SelectItem value="expiry">到期时间</SelectItem><SelectItem value="price">月均费用从高到低</SelectItem><SelectItem value="name">名称排序</SelectItem></SelectContent></Select><div className="view-toggle" role="group" aria-label="视图切换"><button className={viewMode === "grid" ? "active" : ""} aria-pressed={viewMode === "grid"} title="卡片视图" onClick={() => { setViewMode("grid"); try { localStorage.setItem("membership-view", "grid"); } catch { /* storage can be unavailable */ } }}><LayoutGrid size={15} /></button><button className={viewMode === "list" ? "active" : ""} aria-pressed={viewMode === "list"} title="紧凑列表视图" onClick={() => { setViewMode("list"); try { localStorage.setItem("membership-view", "list"); } catch { /* storage can be unavailable */ } }}><List size={15} /></button></div></div></div>
       <Tabs value={category} onValueChange={setCategory} className="category-tabs"><TabsList className="category-list" aria-label="会员分类"><TabsTrigger value="全部"><LayoutGrid />全部<span>{items.length}</span></TabsTrigger>{visibleCategories.map(({ category: c, count }) => { const Icon = categoryIcons[c]; return <TabsTrigger key={c} value={c}><Icon />{c}<span>{count}</span></TabsTrigger>; })}</TabsList></Tabs>

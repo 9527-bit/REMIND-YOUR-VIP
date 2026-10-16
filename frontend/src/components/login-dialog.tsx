@@ -23,7 +23,7 @@ export function LoginDialog({open,onOpenChange,onSuccess}:Props) {
     } finally { setBusy(false); }
   }
   return <Dialog open={open} onOpenChange={value=>{if(!busy){setPassword("");setError("");onOpenChange(value);}}}>
-    <DialogContent className="membership-dialog"><DialogHeader><DialogTitle>登录你的会员看板</DialogTitle>
+    <DialogContent className="membership-dialog"><DialogHeader><DialogTitle>登录今晚打老虎的会员看板</DialogTitle>
     <DialogDescription className="sr-only">输入管理员账号和密码。</DialogDescription></DialogHeader>
     <form className="login-form" onSubmit={submit}>
       <label className="form-field"><span>管理员账号</span><input required autoComplete="username" maxLength={60} value={username} onChange={e=>setUsername(e.target.value)}/></label>

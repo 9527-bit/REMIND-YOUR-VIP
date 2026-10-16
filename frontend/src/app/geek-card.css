@@ -1,0 +1,747 @@
+/* ==========================================================================
+   Linear / Raycast / Vercel Aesthetic Subscription Card System
+   High-performance GPU accelerated acrylic glassmorphism & spotlight
+   ========================================================================== */
+
+.subscription-card.geek-card {
+  --mouse-x: 50%;
+  --mouse-y: 50%;
+  --spotlight-opacity: 0;
+  --brand-glow-opacity: 0.05;
+  --brand-color: #3b82f6;
+
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: 22px 22px 18px;
+  border-radius: 18px;
+  min-width: 0;
+  overflow: hidden;
+  isolation: isolate;
+
+  /* Deep acrylic smoked glass */
+  background: rgba(14, 15, 20, 0.76);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+
+  /* 1px Edge Highlight & base borders */
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.09),
+    0 4px 20px -2px rgba(0, 0, 0, 0.5);
+
+  /* Industrial transition curve */
+  transition: 
+    transform 220ms cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 220ms cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 220ms cubic-bezier(0.16, 1, 0.3, 1) !important;
+  will-change: transform, box-shadow;
+}
+
+/* Light mode adaptation */
+:root[data-appearance="light"] .subscription-card.geek-card {
+  background: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.95),
+    0 4px 16px -2px rgba(0, 0, 0, 0.05);
+}
+
+/* Hover elevation & micro-interaction */
+.subscription-card.geek-card:hover {
+  transform: translateY(-2.5px) !important;
+  border-color: rgba(255, 255, 255, 0.18) !important;
+  box-shadow: 
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.15),
+    0 16px 36px -6px rgba(0, 0, 0, 0.65) !important;
+}
+
+:root[data-appearance="light"] .subscription-card.geek-card:hover {
+  border-color: rgba(0, 0, 0, 0.16) !important;
+  box-shadow: 
+    inset 0 1px 0 0 rgba(255, 255, 255, 1),
+    0 14px 30px -4px rgba(0, 0, 0, 0.09) !important;
+}
+
+/* Status-specific subtle border tint */
+.subscription-card.geek-card.soon {
+  border-color: rgba(245, 158, 11, 0.22);
+}
+.subscription-card.geek-card.soon:hover {
+  border-color: rgba(245, 158, 11, 0.35) !important;
+}
+.subscription-card.geek-card.expired {
+  border-color: rgba(239, 68, 68, 0.22);
+}
+.subscription-card.geek-card.expired:hover {
+  border-color: rgba(239, 68, 68, 0.35) !important;
+}
+
+/* Ambient Brand Glow Layer (大模糊度散射光斑) */
+.geek-card-glow {
+  position: absolute;
+  top: -40px;
+  left: -40px;
+  width: 220px;
+  height: 220px;
+  border-radius: 9999px;
+  pointer-events: none;
+  background: radial-gradient(circle at 40% 40%, var(--brand-color) 0%, transparent 68%);
+  filter: blur(52px);
+  opacity: var(--brand-glow-opacity, 0.05);
+  transform: translate3d(0, 0, 0);
+  transition: opacity 280ms cubic-bezier(0.16, 1, 0.3, 1);
+  z-index: 0;
+}
+
+/* Spotlight Hover Effect Layer (探照灯光晕) */
+.geek-card-spotlight {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background: radial-gradient(
+    520px circle at var(--mouse-x, 50%) var(--mouse-y, 50%),
+    rgba(255, 255, 255, 0.08),
+    transparent 52%
+  );
+  opacity: var(--spotlight-opacity, 0);
+  transition: opacity 200ms cubic-bezier(0.16, 1, 0.3, 1);
+  z-index: 1;
+}
+
+:root[data-appearance="light"] .geek-card-spotlight {
+  background: radial-gradient(
+    520px circle at var(--mouse-x, 50%) var(--mouse-y, 50%),
+    rgba(0, 0, 0, 0.035),
+    transparent 52%
+  );
+}
+
+/* 1px Edge Highlight Inner Bezel */
+.geek-card-border {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.09);
+  transition: border-color 220ms cubic-bezier(0.16, 1, 0.3, 1);
+  z-index: 1;
+}
+
+:root[data-appearance="light"] .geek-card-border {
+  border-color: rgba(0, 0, 0, 0.05);
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.85);
+}
+
+/* Content Container relative to layer above spotlight & glow */
+.geek-card-content {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+/* Card Heading Refinements */
+.subscription-card.geek-card .card-heading {
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+  position: relative !important;
+  width: 100% !important;
+  min-width: 0 !important;
+}
+
+.subscription-card.geek-card .service-logo {
+  --logo-size: 42px;
+  width: var(--logo-size) !important;
+  height: var(--logo-size) !important;
+  flex-shrink: 0 !important;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  transition: transform 220ms cubic-bezier(0.16, 1, 0.3, 1), border-color 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+:root[data-appearance="light"] .subscription-card.geek-card .service-logo {
+  background: #f8fafc;
+  border-color: rgba(0, 0, 0, 0.08);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+}
+
+.subscription-card.geek-card:hover .service-logo {
+  transform: scale(1.02);
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+.subscription-card.geek-card .service-name {
+  min-width: 0 !important;
+  flex: 1 1 auto !important;
+  overflow: hidden !important;
+}
+
+.subscription-card.geek-card .service-name h2 {
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.35;
+  letter-spacing: -0.015em;
+  color: var(--foreground, #f4f4f5);
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.subscription-card.geek-card .service-name p {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
+  font-size: 11px;
+  color: var(--muted-foreground, #a1a1aa);
+  margin-top: 2px;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Action button */
+.subscription-card.geek-card .card-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.subscription-card.geek-card .icon-button {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted-foreground, #a1a1aa);
+  transition: all 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.subscription-card.geek-card .icon-button:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: var(--foreground, #f4f4f5);
+}
+
+:root[data-appearance="light"] .subscription-card.geek-card .icon-button:hover {
+  background: rgba(0, 0, 0, 0.05);
+  border-color: rgba(0, 0, 0, 0.08);
+}
+
+/* ==========================================================================
+   Pulsing Status LED Indicator (极致同心发光与高质感极客微光胶囊)
+   ========================================================================== */
+
+.subscription-card.geek-card .status-indicator,
+.subscription-card.geek-card .status-pill {
+  width: auto !important;
+  max-width: fit-content !important;
+  height: 22px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 5px !important;
+  padding: 0 8px 0 6px !important;
+  border-radius: 9999px !important;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace) !important;
+  font-size: 11px !important;
+  line-height: 1 !important;
+  font-weight: 500 !important;
+  letter-spacing: -0.01em !important;
+  white-space: nowrap !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
+  margin: 0 0 0 auto !important;
+  flex-shrink: 0 !important;
+  box-sizing: border-box !important;
+  transition: all 180ms cubic-bezier(0.16, 1, 0.3, 1) !important;
+  background: rgba(255, 255, 255, 0.03) !important;
+  border: 1px solid rgba(255, 255, 255, 0.07) !important;
+}
+
+/* Healthy State: Soft green glow & delicate breathing ring */
+.subscription-card.geek-card .status-indicator.healthy,
+.subscription-card.geek-card .status-pill.healthy {
+  background: rgba(16, 185, 129, 0.06) !important;
+  border-color: rgba(16, 185, 129, 0.2) !important;
+  color: #34d399 !important;
+}
+
+:root[data-appearance="light"] .subscription-card.geek-card .status-indicator.healthy,
+:root[data-appearance="light"] .subscription-card.geek-card .status-pill.healthy {
+  background: rgba(16, 185, 129, 0.08) !important;
+  border-color: rgba(16, 185, 129, 0.22) !important;
+  color: #059669 !important;
+}
+
+/* Soon State (≤ 7 days): Amber warning pulsing LED */
+.subscription-card.geek-card .status-indicator.soon,
+.subscription-card.geek-card .status-pill.soon {
+  background: rgba(245, 158, 11, 0.07) !important;
+  border-color: rgba(245, 158, 11, 0.22) !important;
+  color: #fbbf24 !important;
+}
+
+:root[data-appearance="light"] .subscription-card.geek-card .status-indicator.soon,
+:root[data-appearance="light"] .subscription-card.geek-card .status-pill.soon {
+  background: rgba(245, 158, 11, 0.09) !important;
+  border-color: rgba(245, 158, 11, 0.26) !important;
+  color: #b45309 !important;
+}
+
+/* Expired State: Matte muted gray-red dot */
+.subscription-card.geek-card .status-indicator.expired,
+.subscription-card.geek-card .status-pill.expired {
+  background: rgba(239, 68, 68, 0.06) !important;
+  border-color: rgba(239, 68, 68, 0.2) !important;
+  color: #f87171 !important;
+}
+
+:root[data-appearance="light"] .subscription-card.geek-card .status-indicator.expired,
+:root[data-appearance="light"] .subscription-card.geek-card .status-pill.expired {
+  background: rgba(239, 68, 68, 0.08) !important;
+  border-color: rgba(239, 68, 68, 0.24) !important;
+  color: #dc2626 !important;
+}
+
+/* 100% Mathematically Concentric LED Dot System */
+.subscription-card.geek-card .status-led,
+.subscription-card.geek-card .status-led-wrapper {
+  position: relative !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 10px !important;
+  height: 10px !important;
+  flex-shrink: 0 !important;
+  margin: 0 !important;
+}
+
+/* Concentric breathing ping shockwave ring */
+.subscription-card.geek-card .status-led-ping {
+  position: absolute !important;
+  top: 50% !important;
+  left: 50% !important;
+  width: 6px !important;
+  height: 6px !important;
+  border-radius: 50% !important;
+  margin: 0 !important;
+  transform: translate(-50%, -50%) !important;
+  transform-origin: center center !important;
+  pointer-events: none !important;
+  z-index: 1 !important;
+}
+
+/* Solid glowing central bead (Dynamic Breathing Core) */
+.subscription-card.geek-card .status-led-core {
+  position: absolute !important;
+  top: 50% !important;
+  left: 50% !important;
+  width: 6px !important;
+  height: 6px !important;
+  border-radius: 50% !important;
+  display: block !important;
+  flex-shrink: 0 !important;
+  margin: 0 !important;
+  transform: translate(-50%, -50%) !important;
+  z-index: 2 !important;
+}
+
+/* Healthy State: Hypnotic breathing glow & concentric wave */
+.subscription-card.geek-card .status-indicator.healthy .status-led-core,
+.subscription-card.geek-card .status-pill.healthy .status-led-core,
+.subscription-card.geek-card.healthy .status-led-core {
+  background-color: #34d399 !important;
+  animation: geek-led-breathe-green 2.4s ease-in-out infinite !important;
+}
+
+.subscription-card.geek-card .status-indicator.healthy .status-led-ping,
+.subscription-card.geek-card .status-pill.healthy .status-led-ping,
+.subscription-card.geek-card.healthy .status-led-ping {
+  background-color: #10b981 !important;
+  animation: geek-ping-wave 2.4s cubic-bezier(0, 0, 0.2, 1) infinite !important;
+}
+
+/* Soon State (≤ 7 days): Amber warning breathing pulse */
+.subscription-card.geek-card .status-indicator.soon .status-led-core,
+.subscription-card.geek-card .status-pill.soon .status-led-core,
+.subscription-card.geek-card.soon .status-led-core {
+  background-color: #fbbf24 !important;
+  animation: geek-led-breathe-amber 1.6s ease-in-out infinite !important;
+}
+
+.subscription-card.geek-card .status-indicator.soon .status-led-ping,
+.subscription-card.geek-card .status-pill.soon .status-led-ping,
+.subscription-card.geek-card.soon .status-led-ping {
+  background-color: #f59e0b !important;
+  animation: geek-ping-wave-amber 1.6s ease-in-out infinite !important;
+}
+
+/* Expired State: Matte muted gray-red dot (No animation as per specification) */
+.subscription-card.geek-card .status-indicator.expired .status-led-core,
+.subscription-card.geek-card .status-pill.expired .status-led-core,
+.subscription-card.geek-card.expired .status-led-core {
+  background-color: #f87171 !important;
+  box-shadow: 0 0 3px rgba(248, 113, 113, 0.45) !important;
+  animation: none !important;
+}
+
+.subscription-card.geek-card .status-indicator.expired .status-led-ping,
+.subscription-card.geek-card .status-pill.expired .status-led-ping,
+.subscription-card.geek-card.expired .status-led-ping {
+  display: none !important;
+}
+
+.subscription-card.geek-card .status-text {
+  display: inline-block !important;
+  line-height: 1 !important;
+  color: inherit !important;
+}
+
+/* Keyframes: Breathing Glow & Concentric Shockwaves */
+@keyframes geek-led-breathe-green {
+  0%, 100% {
+    transform: translate(-50%, -50%) scale(1);
+    box-shadow: 0 0 4px 1px rgba(52, 211, 153, 0.7);
+    opacity: 0.9;
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.18);
+    box-shadow: 0 0 10px 3px rgba(52, 211, 153, 0.95), 0 0 18px 5px rgba(16, 185, 129, 0.45);
+    opacity: 1;
+  }
+}
+
+@keyframes geek-ping-wave {
+  0% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 0.95;
+    box-shadow: 0 0 4px rgba(16, 185, 129, 0.8);
+  }
+  55% {
+    opacity: 0.45;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(3.5);
+    opacity: 0;
+    box-shadow: 0 0 8px rgba(16, 185, 129, 0);
+  }
+}
+
+@keyframes geek-led-breathe-amber {
+  0%, 100% {
+    transform: translate(-50%, -50%) scale(1);
+    box-shadow: 0 0 4px 1px rgba(251, 191, 36, 0.7);
+    opacity: 0.9;
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.2);
+    box-shadow: 0 0 10px 3px rgba(251, 191, 36, 0.95), 0 0 18px 5px rgba(245, 158, 11, 0.45);
+    opacity: 1;
+  }
+}
+
+@keyframes geek-ping-wave-amber {
+  0% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 0.95;
+    box-shadow: 0 0 4px rgba(245, 158, 11, 0.8);
+  }
+  55% {
+    opacity: 0.45;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(3.5);
+    opacity: 0;
+    box-shadow: 0 0 8px rgba(245, 158, 11, 0);
+  }
+}
+
+/* ==========================================================================
+   Geek Telemetry Grid (等宽数字化遥测展示 & 彻底消除顶部白边)
+   ========================================================================== */
+
+.subscription-card.geek-card .card-metrics,
+.subscription-card.geek-card .telemetry-grid {
+  display: grid !important;
+  grid-template-columns: 1fr 1fr !important;
+  gap: 14px !important;
+  margin: 18px 0 14px !important;
+  padding: 13px 15px !important;
+  border-radius: 12px !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-left: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
+  background: rgba(255, 255, 255, 0.025) !important;
+  box-shadow: none !important;
+}
+
+:root[data-appearance="light"] .subscription-card.geek-card .card-metrics,
+:root[data-appearance="light"] .subscription-card.geek-card .telemetry-grid {
+  border: 1px solid rgba(0, 0, 0, 0.06) !important;
+  border-top: 1px solid rgba(0, 0, 0, 0.06) !important;
+  background: rgba(0, 0, 0, 0.02) !important;
+}
+
+.subscription-card.geek-card .telemetry-col {
+  display: flex !important;
+  flex-direction: column !important;
+  min-width: 0 !important;
+}
+
+.subscription-card.geek-card .telemetry-col:last-child {
+  padding-left: 12px !important;
+  border-left: 1px solid rgba(255, 255, 255, 0.06) !important;
+}
+
+:root[data-appearance="light"] .subscription-card.geek-card .telemetry-col:last-child {
+  border-left-color: rgba(0, 0, 0, 0.06) !important;
+}
+
+.subscription-card.geek-card .telemetry-label {
+  display: flex !important;
+  align-items: center !important;
+  gap: 5px !important;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace) !important;
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.03em !important;
+  color: var(--muted-foreground, #a1a1aa) !important;
+}
+
+.subscription-card.geek-card .telemetry-label svg {
+  width: 12px !important;
+  height: 12px !important;
+  stroke-width: 1.8 !important;
+  opacity: 0.8 !important;
+}
+
+.subscription-card.geek-card .telemetry-value-days {
+  margin-top: 5px !important;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace) !important;
+  font-size: 27px !important;
+  font-weight: 700 !important;
+  line-height: 1.05 !important;
+  letter-spacing: -0.04em !important;
+  font-variant-numeric: tabular-nums !important;
+  color: var(--foreground, #f4f4f5) !important;
+}
+
+:root[data-appearance="light"] .subscription-card.geek-card .telemetry-value-days {
+  color: #18181b !important;
+}
+
+.subscription-card.geek-card .telemetry-value-days span {
+  font-family: var(--font-sans, system-ui, sans-serif) !important;
+  font-size: 12px !important;
+  font-weight: 400 !important;
+  color: var(--muted-foreground, #a1a1aa) !important;
+  margin-left: 4px !important;
+  letter-spacing: normal !important;
+}
+
+/* 续费金额与原币高对比度显示 - 彻底消除 #22382e 极暗绿看不清问题 */
+.subscription-card.geek-card .card-metrics p,
+.subscription-card.geek-card .membership-price,
+.subscription-card.geek-card .telemetry-value-price,
+.subscription-card.geek-card .currency-amount,
+.subscription-card.geek-card .currency-value {
+  margin: 6px 0 0 !important;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace) !important;
+  font-size: 16px !important;
+  font-weight: 700 !important;
+  line-height: 1.25 !important;
+  letter-spacing: -0.02em !important;
+  font-variant-numeric: tabular-nums !important;
+  color: #f4f4f5 !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+
+:root[data-appearance="light"] .subscription-card.geek-card .card-metrics p,
+:root[data-appearance="light"] .subscription-card.geek-card .membership-price,
+:root[data-appearance="light"] .subscription-card.geek-card .telemetry-value-price,
+:root[data-appearance="light"] .subscription-card.geek-card .currency-amount,
+:root[data-appearance="light"] .subscription-card.geek-card .currency-value {
+  color: #18181b !important;
+}
+
+.subscription-card.geek-card .currency-code {
+  color: #a1a1aa !important;
+  font-family: var(--font-mono, ui-monospace, monospace) !important;
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.02em !important;
+}
+
+.subscription-card.geek-card .membership-price small {
+  font-family: var(--font-mono, ui-monospace, monospace) !important;
+  font-size: 11px !important;
+  font-weight: 400 !important;
+  color: #a1a1aa !important;
+  margin-left: 3px !important;
+}
+
+/* Progress Section */
+.subscription-card.geek-card .progress-caption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
+  font-size: 11px;
+  color: var(--muted-foreground, #a1a1aa);
+  margin-bottom: 7px;
+}
+
+.subscription-card.geek-card .progress-caption > span:last-child {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--foreground, #e4e4e7);
+}
+
+:root[data-appearance="light"] .subscription-card.geek-card .progress-caption > span:last-child {
+  color: #27272a;
+}
+
+.subscription-card.geek-card .card-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 500;
+}
+
+.subscription-card.geek-card .card-status.soon {
+  color: #fbbf24;
+}
+
+.subscription-card.geek-card .card-status.expired {
+  color: #f87171;
+}
+
+/* Segmented High-Precision Gauge */
+.subscription-card.geek-card .segments {
+  height: 6px !important;
+  border-radius: 9999px !important;
+  background: rgba(255, 255, 255, 0.07) !important;
+  mask-image: repeating-linear-gradient(to right, #000 0, #000 calc(4.1667% - 2px), transparent calc(4.1667% - 2px), transparent 4.1667%);
+  overflow: hidden;
+  position: relative;
+}
+
+:root[data-appearance="light"] .subscription-card.geek-card .segments {
+  background: rgba(0, 0, 0, 0.08) !important;
+}
+
+.subscription-card.geek-card .segments [data-slot="progress-indicator"] {
+  border-radius: 9999px;
+  background: var(--segment-color, #10b981) !important;
+  box-shadow: 0 0 10px var(--segment-color, rgba(16, 185, 129, 0.5));
+  transition: transform 300ms cubic-bezier(0.16, 1, 0.3, 1), background-color 300ms ease;
+}
+
+.subscription-card.geek-card .segments.is-empty {
+  background: rgba(239, 68, 68, 0.15) !important;
+}
+
+/* ==========================================================================
+   Card Footer (到期时间与特性标签)
+   ========================================================================== */
+
+.geek-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
+  font-size: 11px;
+  color: var(--muted-foreground, #a1a1aa);
+}
+
+:root[data-appearance="light"] .geek-card-footer {
+  border-top-color: rgba(0, 0, 0, 0.06);
+}
+
+.membership-expiry-date {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.membership-expiry-date svg {
+  width: 12px;
+  height: 12px;
+  stroke-width: 1.8;
+  opacity: 0.75;
+}
+
+.membership-expiry-date time {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  color: var(--muted-foreground, #a1a1aa);
+}
+
+/* Linear / Raycast Style Micro Badges */
+.geek-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 5px;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
+  font-size: 10px;
+  font-weight: 550;
+  letter-spacing: 0.02em;
+  line-height: 1.3;
+}
+
+.geek-badge.auto {
+  background: rgba(16, 185, 129, 0.1);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.22);
+}
+
+:root[data-appearance="light"] .geek-badge.auto {
+  background: rgba(16, 185, 129, 0.12);
+  border-color: rgba(16, 185, 129, 0.25);
+  color: #059669;
+}
+
+.geek-badge.manual {
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--muted-foreground, #a1a1aa);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+:root[data-appearance="light"] .geek-badge.manual {
+  background: rgba(0, 0, 0, 0.035);
+  border-color: rgba(0, 0, 0, 0.06);
+}
+
+/* Reduced motion accessibility */
+@media (prefers-reduced-motion: reduce) {
+  .subscription-card.geek-card,
+  .geek-card-glow,
+  .geek-card-spotlight,
+  .status-led-ping {
+    transition: none !important;
+    animation: none !important;
+    transform: none !important;
+  }
+}
