@@ -8,8 +8,8 @@
 
     docker version
     docker compose version
-    git clone https://github.com/Gx404/vip-manager.git
-    cd vip-manager
+    git clone https://github.com/9527-bit/REMIND-YOUR-VIP.git
+    cd REMIND-YOUR-VIP
     cp .env.example .env
     chmod 600 .env
 
