@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100%" height="100%">
+  <title>iQIYI</title>
+  <rect x="10" y="14" width="80" height="72" rx="18" ry="18" fill="none" stroke="#00DA5A" stroke-width="8.5" />
+  <circle cx="78" cy="22" r="5.5" fill="#00DA5A" />
+  <polygon points="42,34 42,66 68,50" fill="#00DA5A" stroke="#00DA5A" stroke-width="4" stroke-linejoin="round" />
+</svg>
