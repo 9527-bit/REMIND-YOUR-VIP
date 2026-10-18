@@ -81,6 +81,7 @@ test("expanded local brands recognize common memberships and prefer more specifi
     "Zoom Workplace": "zoom", "Linear": "linear", "Tailscale": "tailscale", "剪映专业版": "capcut",
     "京东PLUS": "jd", "JD PLUS": "jd", "盒马X会员": "hema", "Freshippo": "hema",
     "QQ音乐豪华绿钻": "qq-music", "绿钻年卡": "qq-music",
+    "腾讯视频VIP": "tencent-video", "企鹅影视": "tencent-video",
   };
   for (const [name, key] of Object.entries(samples)) assert.equal(matchBrand(name)?.key, key, name);
   for (const name of ["", "   ", "我的 Netflix 账户", "javascript:alert(1)", "酷狗音乐", "Microsoft Copilot"]) {

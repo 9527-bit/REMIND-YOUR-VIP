@@ -44,6 +44,7 @@ export const brands: readonly Brand[] = [
   { key: "manus", label: "Manus", icon: "/brands/manus.svg", aliases: ["manus"] },
   { key: "alibaba-cloud", label: "阿里云", icon: "/brands/alibabacloud-color.svg", aliases: ["阿里云", "aliyun", "alibabacloud", "alicloud"] },
   { key: "tencent-cloud", label: "腾讯云", icon: "/brands/tencentcloud-color.svg", aliases: ["腾讯云", "tencentcloud"] },
+  { key: "tencent-video", label: "腾讯视频", icon: "/brands/tencent-video.svg", aliases: ["腾讯视频", "tencentvideo", "企鹅影视", "企鹅tv", "腾讯视频vip", "腾讯vip"] },
   { key: "playstation", label: "PlayStation Plus", icon: "/brands/playstation.svg", aliases: ["playstation", "psplus", "psn", "索尼会员"] },
   { key: "xbox", label: "Xbox Game Pass", icon: "/brands/xbox-game-pass.svg", aliases: ["xbox", "xgp", "xgpu", "gamepass"] },
   { key: "nintendo", label: "Nintendo Switch Online", icon: "/brands/nintendo-switch.svg", aliases: ["nintendo", "任天堂", "switchonline", "switch会员"] },
