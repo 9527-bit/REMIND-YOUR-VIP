@@ -58,6 +58,7 @@ export const brands: readonly Brand[] = [
   { key: "bitwarden", label: "Bitwarden", icon: "/brands/bitwarden.svg", aliases: ["bitwarden"] },
   { key: "1password", label: "1Password", icon: "/brands/1password.svg", aliases: ["1password"] },
   { key: "qq-vip", label: "QQ 会员", icon: "/brands/qq.svg", aliases: ["qq会员", "qq超级会员", "qqvip", "qqsvip"] },
+  { key: "qq-music", label: "QQ 音乐", icon: "/brands/qq-music.svg", aliases: ["qq音乐", "qqmusic", "绿钻", "qq绿钻", "q音", "qq音乐绿钻"] },
   { key: "slack", label: "Slack", icon: "/brands/slack.svg", aliases: ["slack"] },
   { key: "zoom", label: "Zoom", icon: "/brands/zoom.svg", aliases: ["zoom"] },
   { key: "linear", label: "Linear", icon: "/brands/linear.svg", aliases: ["linear"] },
