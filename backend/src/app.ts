@@ -12,7 +12,8 @@ import { idSchema } from "./validation.ts";
 import { ExchangeRates } from "./exchange-rates.ts";
 import { PaymentService } from "./payments.ts";
 import { PASSWORD_MAX_LENGTH } from "./password-policy.ts";
-import type { EmailNotificationService } from "./notifications.ts";
+import type { EmailNotificationService, NotificationManager } from "./notifications.ts";
+import type { BarkStatus, EmailStatus, NotificationStatus } from "../../shared/notifications.ts";
 
 const cookieName = "membership_session";
 function tokenFromCookie(value: string | undefined): string {
@@ -21,8 +22,12 @@ function tokenFromCookie(value: string | undefined): string {
 }
 const loginSchema = z.object({ username: z.string().min(1).max(60), password: z.string().min(1).max(PASSWORD_MAX_LENGTH) }).strict();
 
+export type NotificationApi = Pick<EmailNotificationService, "status" | "sendTest"> & {
+  sendBarkTest?: (user: number) => Promise<void>;
+};
+
 /** Build the independent HTTP API. Caller owns server lifecycle and database cleanup. */
-export function createApp(db: DatabaseSync, config: Config, notifications?: Pick<EmailNotificationService, "status" | "sendTest">, exchangeRates = new ExchangeRates()) {
+export function createApp(db: DatabaseSync, config: Config, notifications?: NotificationApi, exchangeRates = new ExchangeRates()) {
   const app = express();
   const auth = new AuthService(db, config);
   const subscriptions = new SubscriptionService(db, config.timeZone, () => new Date(), exchangeRates);
@@ -111,12 +116,51 @@ export function createApp(db: DatabaseSync, config: Config, notifications?: Pick
     next();
   });
   app.get("/api/auth/session", (_req,res) => res.json({ user:res.locals.user }));
-  app.get("/api/notifications/status", (_req,res) => res.json(notifications?.status(res.locals.user.id) ?? { enabled:false, configured:false, recipient:"未配置", timeZone:config.timeZone, reminderHour:9, reminderMinute:0, testAvailableAt:0, recent:[] }));
-  app.post("/api/notifications/test", async (req,res) => {
+  app.get("/api/notifications/status", (_req, res) => {
+    const defaultEmail: EmailStatus = {
+      enabled: config.email.enabled,
+      configured: Boolean(config.email.password && config.email.username && config.email.from && config.email.to),
+      recipient: "未配置",
+      timeZone: config.timeZone,
+      reminderHour: config.email.reminderHour,
+      reminderMinute: config.email.reminderMinute,
+      testAvailableAt: 0,
+      recent: [],
+    };
+    const defaultBark: BarkStatus = {
+      enabled: config.bark.enabled,
+      configured: Boolean(config.bark.key),
+      server: config.bark.server,
+      maskedKey: "未配置",
+      sound: config.bark.sound,
+      group: config.bark.group,
+      timeZone: config.timeZone,
+      reminderHour: config.email.reminderHour,
+      reminderMinute: config.email.reminderMinute,
+      testAvailableAt: 0,
+      recent: [],
+    };
+
+    if (!notifications) {
+      return res.json({ ...defaultEmail, email: defaultEmail, bark: defaultBark });
+    }
+    const current = notifications.status(res.locals.user.id);
+    if ("bark" in current) {
+      return res.json(current);
+    }
+    return res.json({ ...current, email: current, bark: defaultBark });
+  });
+  app.post("/api/notifications/test", async (req, res) => {
     z.object({}).strict().parse(req.body);
-    if (!notifications) throw new ApiError(503,"邮件提醒尚未配置，请先设置 QQ 邮箱 SMTP。","EMAIL_NOT_CONFIGURED");
+    if (!notifications) throw new ApiError(503, "邮件提醒尚未配置，请先设置 QQ 邮箱 SMTP。", "EMAIL_NOT_CONFIGURED");
     await notifications.sendTest(res.locals.user.id);
-    res.json({ accepted:true });
+    res.json({ accepted: true });
+  });
+  app.post("/api/notifications/bark/test", async (req, res) => {
+    z.object({}).strict().parse(req.body);
+    if (!notifications?.sendBarkTest) throw new ApiError(503, "Bark 尚未配置，请在 .env 中设置 BARK_KEY。", "BARK_NOT_CONFIGURED");
+    await notifications.sendBarkTest(res.locals.user.id);
+    res.json({ accepted: true });
   });
   app.get("/api/exchange-rate", async (req,res) => res.json(await exchangeRates.lookup(req.query)));
   app.get("/api/subscriptions", (_req,res) => res.json(subscriptions.list(res.locals.user.id)));

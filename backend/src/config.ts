@@ -8,12 +8,17 @@ export type Config = {
   host: string; port: number; databasePath: string; publicOrigin: string;
   cookieSecure: boolean; trustProxy: boolean; trustedProxyRanges: string[]; timeZone: string; publicDashboard: boolean;
   adminUsername: string; adminPassword?: string; sessionSeconds: number; email: EmailConfig;
+  bark: BarkConfig;
 };
 
 export type EmailConfig = {
   enabled: boolean; host: string; port: number; secure: boolean;
   username: string; password?: string; from: string; to: string;
   reminderHour: number; reminderMinute: number;
+};
+
+export type BarkConfig = {
+  enabled: boolean; server: string; key: string; sound: string; group: string;
 };
 
 /** Parse server-only configuration; throws before opening a port if unsafe or invalid. */
@@ -28,7 +33,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): Config {
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("PORT 必须是 1–65535 的整数。");
   const boolean = (name: string, fallback: boolean) => {
     const value = env[name];
-    if (value === undefined || (value === "" && ["EMAIL_NOTIFICATIONS", "SMTP_SECURE"].includes(name))) return fallback;
+    if (value === undefined || (value === "" && ["EMAIL_NOTIFICATIONS", "SMTP_SECURE", "BARK_NOTIFICATIONS"].includes(name))) return fallback;
     if (!["true", "false"].includes(value)) throw new Error(name + " 必须是 true 或 false。");
     return value === "true";
   };
@@ -56,6 +61,43 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const emailReminderMinute = Number(env.EMAIL_REMINDER_MINUTE || "0");
   if (!Number.isInteger(emailReminderHour) || emailReminderHour < 0 || emailReminderHour > 23) throw new Error("EMAIL_REMINDER_HOUR 必须是 0–23 的整数。");
   if (!Number.isInteger(emailReminderMinute) || emailReminderMinute < 0 || emailReminderMinute > 59) throw new Error("EMAIL_REMINDER_MINUTE 必须是 0–59 的整数。");
+
+  const barkEnabled = boolean("BARK_NOTIFICATIONS", false);
+  let rawBarkKey = (env.BARK_KEY ?? "").trim();
+  let rawBarkServer = (env.BARK_SERVER ?? "").trim();
+
+  if (rawBarkKey.startsWith("http://") || rawBarkKey.startsWith("https://")) {
+    try {
+      const parsed = new URL(rawBarkKey);
+      const segments = parsed.pathname.split("/").filter(Boolean);
+      if (segments.length > 0) {
+        rawBarkKey = decodeURIComponent(segments.pop()!);
+        if (!rawBarkServer) {
+          rawBarkServer = `${parsed.origin}${segments.length ? "/" + segments.join("/") : ""}`;
+        }
+      }
+    } catch {
+      // keep rawBarkKey as-is
+    }
+  }
+
+  if (!rawBarkServer) rawBarkServer = "https://api.day.app";
+  rawBarkServer = rawBarkServer.replace(/\/+$/, "");
+
+  try {
+    const parsedServer = new URL(rawBarkServer);
+    if (!["http:", "https:"].includes(parsedServer.protocol)) throw new Error();
+  } catch {
+    throw new Error("BARK_SERVER 必须是有效的 http(s) 地址。");
+  }
+
+  if (barkEnabled && !rawBarkKey) {
+    throw new Error("启用 Bark 提醒需要配置 BARK_KEY。");
+  }
+
+  const barkSound = (env.BARK_SOUND ?? "minuet").trim();
+  const barkGroup = (env.BARK_GROUP ?? "会员看板").trim();
+
   const trustedProxyRanges = (env.TRUSTED_PROXY_RANGES ?? "loopback,linklocal,uniquelocal").split(",").map(value => value.trim());
   if (!trustedProxyRanges.length || trustedProxyRanges.some(value => {
     if (["loopback", "linklocal", "uniquelocal"].includes(value)) return false;
@@ -71,6 +113,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): Config {
     publicDashboard: boolean("PUBLIC_DASHBOARD", false),
     email: { enabled: emailEnabled, host: emailHost, port: emailPort, secure: emailSecure, username: emailUsername,
       password: emailPassword, from: emailFrom, to: emailTo, reminderHour: emailReminderHour, reminderMinute: emailReminderMinute },
+    bark: { enabled: barkEnabled, server: rawBarkServer, key: rawBarkKey, sound: barkSound, group: barkGroup },
     sessionSeconds: 7 * 24 * 60 * 60,
   };
 }

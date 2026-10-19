@@ -55,7 +55,7 @@ test("v6 category migration preserves money, dates, owners and history, and runs
   const others = otherTables.map(snapshot);
   db.close(); db = openDatabase(path);
   try {
-    assert.equal(db.prepare("PRAGMA user_version").get()!.user_version, 8);
+    assert.equal(db.prepare("PRAGMA user_version").get()!.user_version, 9);
     assert.equal(db.prepare("PRAGMA integrity_check").get()!.integrity_check, "ok");
     const after = snapshot("subscriptions");
     assert.equal(after.length, before.length);

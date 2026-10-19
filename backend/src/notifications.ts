@@ -2,13 +2,14 @@ import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { dateInTimeZone } from "../../shared/billing.ts";
 import { remaining, type Subscription } from "../../shared/subscriptions.ts";
-import type { DeliveryState, EmailStatus } from "../../shared/notifications.ts";
+import type { DeliveryState, EmailStatus, NotificationStatus } from "../../shared/notifications.ts";
 import { money } from "../../shared/currency.ts";
 import type { Config } from "./config.ts";
 import { ApiError } from "./errors.ts";
 import { transaction } from "./database.ts";
 import { SubscriptionService } from "./subscriptions.ts";
 import { SmtpMailer, safeMailError, type MailMessage } from "./email.ts";
+import { BarkNotificationService } from "./bark.ts";
 
 type Candidate = { key: string; item: Subscription; days: number; advanced?: boolean };
 const retryMinutes = [5, 30, 120, 360];
@@ -169,3 +170,50 @@ export class EmailNotificationService {
       ]), "本邮件只作提醒，不代表平台已扣款。", `看板：${this.config.publicOrigin}`].join("\n");
   }
 }
+
+/** Composite notification orchestrator supporting both Email and Bark push channels. */
+export class NotificationManager {
+  readonly email: EmailNotificationService;
+  readonly bark: BarkNotificationService;
+
+  constructor(email: EmailNotificationService, bark: BarkNotificationService) {
+    this.email = email;
+    this.bark = bark;
+  }
+
+  status(user: number): NotificationStatus {
+    const emailStatus = this.email.status(user);
+    const barkStatus = this.bark.status(user);
+    return {
+      ...emailStatus,
+      email: emailStatus,
+      bark: barkStatus,
+    };
+  }
+
+  async sendTest(user: number): Promise<void> {
+    return this.email.sendTest(user);
+  }
+
+  async sendBarkTest(user: number): Promise<void> {
+    return this.bark.sendTest(user);
+  }
+
+  async sendDueReminders(now = new Date()): Promise<number> {
+    const [emailRes, barkRes] = await Promise.allSettled([
+      this.email.sendDueReminders(now),
+      this.bark.sendDueReminders(now),
+    ]);
+    let total = 0;
+    if (emailRes.status === "fulfilled") total += emailRes.value;
+    else console.error("邮件提醒执行失败：", emailRes.reason);
+    if (barkRes.status === "fulfilled") total += barkRes.value;
+    else console.error("Bark 提醒执行失败：", barkRes.reason);
+    return total;
+  }
+
+  async drain(): Promise<void> {
+    await Promise.allSettled([this.email.drain(), this.bark.drain()]);
+  }
+}
+

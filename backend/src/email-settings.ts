@@ -1,6 +1,9 @@
 import { readFileSync, statSync } from "node:fs";
 
-const allowed = new Set(["EMAIL_NOTIFICATIONS", "SMTP_HOST", "SMTP_PORT", "SMTP_SECURE", "SMTP_USER", "SMTP_PASSWORD", "EMAIL_FROM", "EMAIL_TO", "EMAIL_REMINDER_HOUR", "EMAIL_REMINDER_MINUTE"]);
+const allowed = new Set([
+  "EMAIL_NOTIFICATIONS", "SMTP_HOST", "SMTP_PORT", "SMTP_SECURE", "SMTP_USER", "SMTP_PASSWORD", "EMAIL_FROM", "EMAIL_TO", "EMAIL_REMINDER_HOUR", "EMAIL_REMINDER_MINUTE",
+  "BARK_NOTIFICATIONS", "BARK_SERVER", "BARK_KEY", "BARK_SOUND", "BARK_GROUP",
+]);
 
 /** Read an optional private JSON file; nonempty environment values take precedence. */
 export function emailEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {

@@ -4,14 +4,15 @@ import { bootstrapAdmin } from "./auth.ts";
 import { createApp } from "./app.ts";
 import { SubscriptionService } from "./subscriptions.ts";
 import { startNotificationScheduler, startRenewalScheduler } from "./renewal-scheduler.ts";
-import { EmailNotificationService } from "./notifications.ts";
+import { EmailNotificationService, NotificationManager } from "./notifications.ts";
+import { BarkNotificationService } from "./bark.ts";
 import type { DatabaseSync } from "node:sqlite";
 
 let db: DatabaseSync | undefined;
 let stopRenewals: (() => void) | undefined;
 let stopNotifications: (() => Promise<void>) | undefined;
 let stopRates: (() => Promise<void>) | undefined;
-let notifications: EmailNotificationService | undefined;
+let notifications: NotificationManager | undefined;
 try {
   const config = readConfig();
   for (const warning of configurationWarnings(config)) console.warn(warning);
@@ -20,8 +21,10 @@ try {
   stopRenewals = startRenewalScheduler(new SubscriptionService(db,config.timeZone));
   const rateService = new SubscriptionService(db,config.timeZone);
   stopRates = startNotificationScheduler({sendDueReminders:async () => { await rateService.refreshPendingRates(); return 0; }});
-  notifications = new EmailNotificationService(db, config);
-  if (config.email.enabled) stopNotifications = startNotificationScheduler(notifications);
+  const emailService = new EmailNotificationService(db, config);
+  const barkService = new BarkNotificationService(db, config);
+  notifications = new NotificationManager(emailService, barkService);
+  if (config.email.enabled || config.bark.enabled) stopNotifications = startNotificationScheduler(notifications);
   const server = createApp(db,config,notifications).listen(config.port,config.host,() => {
     console.log("Membership API listening on " + config.host + ":" + config.port);
   });
