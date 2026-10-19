@@ -36,12 +36,22 @@ button, input, textarea, select { font-family: inherit; }
 .email-reminders { display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px; }
 .notification-channel-card { border: 1px solid var(--border, #dfe6e4); border-radius: 12px; padding: 14px; background: var(--card-bg, rgba(255, 255, 255, 0.4)); }
 .channel-pill { font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 9999px; line-height: 1.3; display: inline-flex; align-items: center; }
+.channel-pill-dot { width: 6px; height: 6px; border-radius: 50%; margin-right: 5px; display: inline-block; background: currentColor; }
 .channel-pill.active { background: rgba(38, 153, 121, 0.15); color: #269979; border: 1px solid rgba(38, 153, 121, 0.3); }
 .channel-pill.paused { background: rgba(234, 179, 8, 0.15); color: #ca8a04; border: 1px solid rgba(234, 179, 8, 0.3); }
 .channel-pill.unconfigured { background: rgba(148, 163, 184, 0.15); color: #64748b; border: 1px solid rgba(148, 163, 184, 0.3); }
 .dark .channel-pill.active { color: #34d399; }
 .dark .channel-pill.paused { color: #facc15; }
 .dark .channel-pill.unconfigured { color: #94a3b8; }
+.channel-meta-grid { display: flex; flex-wrap: wrap; gap: 8px 14px; background: rgba(0, 0, 0, 0.025); border: 1px dashed var(--border, #dfe6e4); border-radius: 8px; padding: 10px 12px; margin-top: 10px; font-size: 13px; }
+.dark .channel-meta-grid { background: rgba(255, 255, 255, 0.03); }
+.channel-meta-item { display: inline-flex; align-items: center; gap: 6px; }
+.meta-label { color: #64748b; font-size: 12px; }
+.dark .meta-label { color: #94a3b8; }
+.meta-code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; background: rgba(38, 153, 121, 0.1); color: #269979; padding: 2px 6px; border-radius: 4px; }
+.dark .meta-code { color: #34d399; background: rgba(52, 211, 153, 0.15); }
+.meta-val { font-weight: 500; color: #334155; font-size: 12px; }
+.dark .meta-val { color: #e2e8f0; }
 .email-reminder-heading, .email-reminder-heading strong, .email-reminder-controls { display: flex; align-items: center; gap: 8px; }
 .email-reminder-controls { flex-wrap: wrap; margin-top: 12px; }
 .email-reminder-controls > span { flex: 1 1 180px; font-size: 14px; overflow-wrap: anywhere; }

@@ -7,7 +7,7 @@ import type { NotificationStatus } from "../../../shared/notifications.ts";
 
 const stateLabel = { pending: "发送中", sent: "已提交", failed: "发送失败", uncertain: "待核实" };
 
-/** Owner-only notification status and rate-limited smoke tests for Email & Bark. */
+/** Owner-only notification status and rate-limited smoke tests for Bark & Email. */
 export function EmailReminders() {
   const [status, setStatus] = useState<NotificationStatus | null>(null);
   const [error, setError] = useState("");
@@ -91,7 +91,8 @@ export function EmailReminders() {
           {status?.bark ? (
             status.bark.configured ? (
               <span className={`channel-pill ${status.bark.enabled ? "active" : "paused"}`}>
-                {status.bark.enabled ? "已启用" : "已暂停"}
+                <span className="channel-pill-dot" />
+                {status.bark.enabled ? `已启用 · 每日 ${String(status.bark.reminderHour).padStart(2, "0")}:${String(status.bark.reminderMinute).padStart(2, "0")}` : "已暂停"}
               </span>
             ) : (
               <span className="channel-pill unconfigured">未配置</span>
@@ -103,12 +104,36 @@ export function EmailReminders() {
             <p>系统会在每天设定时间扫描临期订阅，直接推送到你的 iPhone 锁屏。无需开启浏览器网页。</p>
           </ContextHelp>
         </div>
+
+        {status?.bark?.configured && (
+          <div className="channel-meta-grid">
+            <div className="channel-meta-item">
+              <span className="meta-label">设备 Key</span>
+              <code className="meta-code">{status.bark.maskedKey}</code>
+            </div>
+            <div className="channel-meta-item">
+              <span className="meta-label">推送服务器</span>
+              <span className="meta-val">{status.bark.server}</span>
+            </div>
+            <div className="channel-meta-item">
+              <span className="meta-label">推送铃声</span>
+              <span className="meta-val">{status.bark.sound || "minuet"}</span>
+            </div>
+            <div className="channel-meta-item">
+              <span className="meta-label">通知分组</span>
+              <span className="meta-val">{status.bark.group || "会员看板"}</span>
+            </div>
+          </div>
+        )}
+
         <div className="email-reminder-controls">
           <span>
             {status ? (
               status.bark?.configured
-                ? `${status.bark.maskedKey} · ${status.bark.server} · ${status.bark.enabled ? `每日 ${String(status.bark.reminderHour).padStart(2, "0")}:${String(status.bark.reminderMinute).padStart(2, "0")}` : "自动推送已暂停"}`
-                : "尚未配置（在 .env 中设置 BARK_KEY）"
+                ? (status.bark.enabled
+                    ? `已连接 Bark，每天将在 ${String(status.bark.reminderHour).padStart(2, "0")}:${String(status.bark.reminderMinute).padStart(2, "0")} 自动推送临期会员`
+                    : "已保存 Bark 配置，自动推送当前处于暂停状态")
+                : "尚未配置 Bark。在服务器 .env 中设置 BARK_KEY 与 BARK_NOTIFICATIONS=true 即可启用 iPhone 锁屏推送。"
             ) : "正在读取设置…"}
           </span>
           <button className="icon-button" aria-label="刷新 Bark 状态" onClick={() => void load()}><RotateCw size={16} /></button>
@@ -120,6 +145,7 @@ export function EmailReminders() {
             {sendingBark ? "发送中…" : barkCooldown ? `${barkCooldown} 秒后可重试` : "发送 Bark 测试"}
           </button>
         </div>
+
         {!!status?.bark?.recent?.length && (
           <details className="email-results">
             <summary>最近 Bark 发送记录</summary>
@@ -145,7 +171,8 @@ export function EmailReminders() {
           {status ? (
             status.configured ? (
               <span className={`channel-pill ${status.enabled ? "active" : "paused"}`}>
-                {status.enabled ? "已启用" : "已暂停"}
+                <span className="channel-pill-dot" />
+                {status.enabled ? `已启用 · 每日 ${String(status.reminderHour).padStart(2, "0")}:${String(status.reminderMinute).padStart(2, "0")}` : "已暂停"}
               </span>
             ) : (
               <span className="channel-pill unconfigured">未配置</span>
@@ -157,12 +184,32 @@ export function EmailReminders() {
             <p>首次配置请在服务器运行：docker compose exec backend node backend/scripts/configure-email.ts，然后重启后端。授权码不会存入浏览器或 JSON 订阅备份。</p>
           </ContextHelp>
         </div>
+
+        {status?.configured && (
+          <div className="channel-meta-grid">
+            <div className="channel-meta-item">
+              <span className="meta-label">收件邮箱</span>
+              <code className="meta-code">{status.recipient}</code>
+            </div>
+            <div className="channel-meta-item">
+              <span className="meta-label">发送方式</span>
+              <span className="meta-val">QQ SMTP (SSL:465)</span>
+            </div>
+            <div className="channel-meta-item">
+              <span className="meta-label">提醒时段</span>
+              <span className="meta-val">每日 {String(status.reminderHour).padStart(2, "0")}:${String(status.reminderMinute).padStart(2, "0")} 汇总</span>
+            </div>
+          </div>
+        )}
+
         <div className="email-reminder-controls">
           <span>
             {status ? (
               status.configured
-                ? `${status.recipient} · ${status.enabled ? `每日 ${String(status.reminderHour).padStart(2, "0")}:${String(status.reminderMinute).padStart(2, "0")}` : "自动提醒已暂停"}`
-                : "尚未配置"
+                ? (status.enabled
+                    ? `${status.recipient} · 每日 ${String(status.reminderHour).padStart(2, "0")}:${String(status.reminderMinute).padStart(2, "0")}`
+                    : "自动提醒已暂停")
+                : "尚未配置（可在服务器运行 configure-email.ts 启用）"
             ) : "正在读取设置…"}
           </span>
           <button className="icon-button" aria-label="刷新邮件状态" onClick={() => void load()}><RotateCw size={16} /></button>
@@ -174,6 +221,7 @@ export function EmailReminders() {
             {sendingEmail ? "发送中…" : emailCooldown ? `${emailCooldown} 秒后可重试` : "发送测试邮件"}
           </button>
         </div>
+
         {!!status?.recent?.length && (
           <details className="email-results">
             <summary>最近发送记录</summary>
