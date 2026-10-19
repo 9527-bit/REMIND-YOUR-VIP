@@ -385,7 +385,7 @@ export default function Dashboard() {
     <AmbientRain />
     <main className="dashboard">
       <header className={`topbar${authRequired ? " guest-topbar" : ""}`}>
-        <div className="brand"><h1>今晚打老虎<span className="brand-dot">.</span></h1><span className="brand-divider" /><span className="brand-caption">会员看板</span></div>
+        <div className="brand"><img src="/favicon.svg" alt="" className="brand-logo" width="30" height="30" /><h1>今晚打老虎<span className="brand-dot">.</span></h1><span className="brand-divider" /><span className="brand-caption">会员看板</span></div>
         <div className="header-actions">
           <ThemeToggle />
           {!authRequired && <div className="header-toolbox" role="toolbar" aria-label="会员工具">
