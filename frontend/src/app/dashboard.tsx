@@ -28,9 +28,11 @@ import { CompactDialogHeader, ContextHelp } from "@/components/context-help";
 import { EmailReminders } from "@/components/email-reminders";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { AmbientRain } from "@/components/ambient-rain";
-import type { PhoneAccount } from "../../../shared/phones.ts";
+import type { PhoneAccount, PhoneDisplayPreference } from "../../../shared/phones.ts";
+import { phoneSummary } from "../../../shared/phones.ts";
+import { PhoneSummaryCard } from "@/components/phone-summary-card";
 
-const PhoneAccountsPanel = lazy(() => import("@/components/phone-accounts").then(module => ({ default: module.PhoneAccountsPanel })));
+const PhoneAccountsDialog = lazy(() => import("@/components/phone-accounts").then(module => ({ default: module.PhoneAccountsDialog })));
 const ReportPage = lazy(() => import("@/components/report-page").then(module => ({ default: module.ReportPage })));
 
 const categoryIcons = { "影音娱乐": Music2, "购物电商": ShoppingBag, "AI 工具": Sparkles, "云存储": Cloud, "办公效率": BriefcaseBusiness, "设计与创作": Palette, "云服务与网络": Globe, "生活服务": Coffee, "游戏会员": Gamepad2, "学习教育": GraduationCap, "其他服务": LayoutGrid };
@@ -38,6 +40,7 @@ const currency = (n: number) => formatCurrency(n, "CNY");
 type Draft = Omit<Subscription, "amount" | "customDays" | "reminderDays" | keyof CurrencyDraft> & CurrencyDraft & { amount: string; customDays: string; reminderDays: string };
 type ConfirmAction = { kind: "delete"; item: Subscription } | null;
 type ViewMode = "grid" | "list";
+type DisplayEntry = { kind: "subscription"; item: Subscription } | { kind: "phone" };
 
 
 function blankDraft(today: string): Draft {
@@ -88,8 +91,9 @@ export default function Dashboard() {
   const [today, setToday] = useState(() => dateInTimeZone(new Date(), timeZone));
   const [items, setItems] = useState<Subscription[]>([]);
   const [phoneAccounts, setPhoneAccounts] = useState<PhoneAccount[]>([]);
+  const [phoneDisplay, setPhoneDisplay] = useState<PhoneDisplayPreference>({selectedChargeId:null,version:0});
   const [phoneTarget, setPhoneTarget] = useState<Subscription | null>(null);
-  const [phoneEditing, setPhoneEditing] = useState(false);
+  const [phoneOpen, setPhoneOpen] = useState(false);
   const clearPhoneTarget = useCallback(() => setPhoneTarget(null), []);
   const [publicDashboard, setPublicDashboard] = useState(false);
   const requestSequence = useRef(0);
@@ -132,7 +136,7 @@ export default function Dashboard() {
     setReportOpen(false); setShowReminders(false); setShowCostBreakdown(false);
     setEditorOpen(false); setHistoryOpen(false); setBackupOpen(false); setConfirmAction(null);
     setSelected(null); setHistoryItem(null); setDraft(blankDraft(dateInTimeZone(new Date(), timeZoneRef.current))); setUndoReceipts({});
-    setPhoneAccounts([]); setPhoneTarget(null);
+    setPhoneAccounts([]); setPhoneTarget(null); setPhoneOpen(false);
   }, [authRequired]);
 
   useEffect(() => {
@@ -162,7 +166,8 @@ export default function Dashboard() {
       setSyncError(null);
       setItems(payload.items);
       setPhoneAccounts(payload.canManage ? payload.phoneAccounts ?? [] : []);
-      setCategory(current => current === "全部" || payload.items.some(item => item.category === current) ? current : "全部");
+      setPhoneDisplay(payload.canManage ? payload.phoneDisplay ?? {selectedChargeId:null,version:0} : {selectedChargeId:null,version:0});
+      setCategory(current => current === "全部" || (current === "生活服务" && Boolean(payload.phoneAccounts?.length)) || payload.items.some(item => item.category === current) ? current : "全部");
     } catch (error) {
       if (sequence !== requestSequence.current) return;
       if (background && !(error instanceof ApiError && error.status === 401)) {
@@ -190,7 +195,7 @@ export default function Dashboard() {
   useEffect(() => {
     // Do not overwrite an open editor or create avoidable optimistic-lock conflicts while typing.
     const refresh = () => {
-      if (document.visibilityState === "visible" && !editorOpen && !phoneEditing && !loginOpen && !saving && !confirmAction) {
+      if (document.visibilityState === "visible" && !editorOpen && !phoneOpen && !loginOpen && !saving && !confirmAction) {
         setToday(dateInTimeZone(new Date(), timeZoneRef.current));
         void loadRecords(true);
       }
@@ -198,7 +203,7 @@ export default function Dashboard() {
     const timer = window.setInterval(refresh, 60_000);
     document.addEventListener("visibilitychange", refresh);
     return () => { window.clearInterval(timer); document.removeEventListener("visibilitychange", refresh); };
-  }, [editorOpen, phoneEditing, loginOpen, saving, confirmAction, loadRecords]);
+  }, [editorOpen, phoneOpen, loginOpen, saving, confirmAction, loadRecords]);
 
   useEffect(() => {
     type Tool = { name: string; title: string; description: string; inputSchema: object; annotations: { readOnlyHint: boolean; untrustedContentHint: boolean }; execute: (input: unknown) => unknown };
@@ -248,20 +253,30 @@ export default function Dashboard() {
   }, [authRequired, items, today]);
 
   const regularItems = items.filter(item => item.expenseType !== "phone");
-  const visibleCategories = occupiedCategories(regularItems);
+  const phones = useMemo(() => phoneSummary(phoneAccounts,items,today,phoneDisplay.selectedChargeId), [phoneAccounts,items,today,phoneDisplay.selectedChargeId]);
+  const hasPhoneEntry = !authRequired && phoneAccounts.length > 0;
+  const displayedCount = regularItems.length + Number(hasPhoneEntry);
+  const visibleCategories = occupiedCategories([...regularItems, ...(hasPhoneEntry ? [{category:"生活服务"}] : [])]);
   const active = items.filter(i => i.expenseType === "phone" ? i.phoneChargeType !== "once" && i.startDate <= today && i.endDate > today : remaining(i, today) >= 0);
   const due = items.filter(i => remindersEnabled(i) && stateOf(i, today) !== "healthy").sort((a, b) => a.endDate.localeCompare(b.endDate));
   const monthly = active.reduce((sum, item) => sum + monthlyCostCny(item), 0);
-  const filtered = useMemo(() => items.filter(i =>
-    i.expenseType !== "phone" &&
-    (expenseFilter === "all" || (i.expenseType ?? "subscription") === expenseFilter) &&
-    (category === "全部" || i.category === category) &&
-    `${i.name} ${i.plan} ${i.note}`.toLowerCase().includes(query.toLowerCase()),
-  ).sort((a, b) => sort === "price" ? monthlyCostCny(b) - monthlyCostCny(a) : sort === "name" ? a.name.localeCompare(b.name, "zh-CN") : a.endDate.localeCompare(b.endDate)), [items, category, query, sort, today, expenseFilter]);
+  const filtered = useMemo(() => {
+    const entries: DisplayEntry[] = items.filter(i => i.expenseType !== "phone" &&
+      (expenseFilter === "all" || (i.expenseType ?? "subscription") === expenseFilter) &&
+      (category === "全部" || i.category === category) &&
+      `${i.name} ${i.plan} ${i.note}`.toLowerCase().includes(query.toLowerCase()))
+      .map(item => ({kind:"subscription" as const,item}));
+    if (!authRequired && (phoneAccounts.length > 0 || expenseFilter === "phone") &&
+      (expenseFilter === "all" || expenseFilter === "phone") && (category === "全部" || category === "生活服务") && phones.searchText.includes(query.toLowerCase())) entries.push({kind:"phone"});
+    const name = (entry: DisplayEntry) => entry.kind === "phone" ? "手机话费" : entry.item.name;
+    const cost = (entry: DisplayEntry) => entry.kind === "phone" ? phones.monthly : monthlyCostCny(entry.item);
+    const date = (entry: DisplayEntry) => entry.kind === "phone" ? phones.display?.endDate ?? phones.nextBillDate ?? "9999-12-31" : entry.item.endDate;
+    return entries.sort((a,b) => sort === "price" ? cost(b)-cost(a) : sort === "name" ? name(a).localeCompare(name(b),"zh-CN") : date(a).localeCompare(date(b)));
+  }, [items, category, query, sort, expenseFilter, authRequired, phoneAccounts.length, phones]);
 
   function edit(item: Subscription | null = null) {
     if (authRequired) { setLoginOpen(true); return; }
-    if (item?.expenseType === "phone") { setExpenseFilter("phone"); setPhoneTarget(item); return; }
+    if (item?.expenseType === "phone") { setPhoneTarget(item); setPhoneOpen(true); return; }
     setSelected(item);
     setDraft(item ? toDraft(item) : blankDraft(today));
     setDateLinked(!item || linkedEndDate(item.startDate,item.cycle,item.customDays) === item.endDate);
@@ -446,18 +461,19 @@ export default function Dashboard() {
         onOpenCostsBreakdown={() => setShowCostBreakdown(true)}
       />
 
-      <div className="expense-type-filter" role="group" aria-label="记录范围">{[["all","全部记录"],["subscription","会员订阅"],["fixed","固定支出"],...(!authRequired ? [["phone","手机话费"]] : [])].map(([value,label]) => <button key={value} className={`button light${expenseFilter === value ? " is-active" : ""}`} aria-pressed={expenseFilter === value} onClick={() => setExpenseFilter(value)}>{label}</button>)}</div>
-      {!authRequired && (expenseFilter === "all" || expenseFilter === "phone") && <Suspense fallback={<p role="status">正在读取号码管理…</p>}><PhoneAccountsPanel accounts={phoneAccounts} items={items} today={today} query={query} onQueryChange={setQuery} showEmpty={expenseFilter === "phone"} target={phoneTarget} onTargetHandled={clearPhoneTarget} onChanged={() => loadRecords(true)} onHistory={item => { setHistoryItem(item); setHistoryOpen(true); }} onEditingChange={setPhoneEditing} /></Suspense>}
-      {expenseFilter !== "phone" && <><div className="section-toolbar"><div className="section-caption"><span className="live-dot" /><span>我的订阅</span><span className="muted">{regularItems.length} 项</span></div><div className="toolbar-actions"><label className="search"><Search size={15} /><input aria-label="搜索订阅" placeholder="搜索订阅…" value={query} onChange={e => setQuery(e.target.value)} /></label><Select value={sort} onValueChange={setSort}><SelectTrigger className="sort-control" aria-label="排序方式"><SlidersHorizontal size={15} /><SelectValue /></SelectTrigger><SelectContent><SelectItem value="expiry">到期时间</SelectItem><SelectItem value="price">月均费用从高到低</SelectItem><SelectItem value="name">名称排序</SelectItem></SelectContent></Select><div className="view-toggle" role="group" aria-label="视图切换"><button className={viewMode === "grid" ? "active" : ""} aria-pressed={viewMode === "grid"} title="卡片视图" onClick={() => { setViewMode("grid"); try { localStorage.setItem("membership-view", "grid"); } catch { /* storage can be unavailable */ } }}><LayoutGrid size={15} /></button><button className={viewMode === "list" ? "active" : ""} aria-pressed={viewMode === "list"} title="紧凑列表视图" onClick={() => { setViewMode("list"); try { localStorage.setItem("membership-view", "list"); } catch { /* storage can be unavailable */ } }}><List size={15} /></button></div></div></div>
-      <Tabs value={category} onValueChange={setCategory} className="category-tabs"><TabsList className="category-list" aria-label="会员分类"><TabsTrigger value="全部"><LayoutGrid />全部<span>{regularItems.length}</span></TabsTrigger>{visibleCategories.map(({ category: c, count }) => { const Icon = categoryIcons[c]; return <TabsTrigger key={c} value={c}><Icon />{c}<span>{count}</span></TabsTrigger>; })}</TabsList></Tabs>
+      <div className="expense-type-filter" role="group" aria-label="记录范围">{[["all","全部记录"],["subscription","会员订阅"],["fixed","固定支出"],...(!authRequired ? [["phone","手机话费"]] : [])].map(([value,label]) => <button key={value} className={`button light${expenseFilter === value ? " is-active" : ""}`} aria-pressed={expenseFilter === value} onClick={() => { setExpenseFilter(value); setCategory("全部"); }}>{label}</button>)}</div>
+      <div className="section-toolbar"><div className="section-caption"><span className="live-dot" /><span>我的订阅</span><span className="muted">{displayedCount} 项</span></div><div className="toolbar-actions"><label className="search"><Search size={15} /><input aria-label="搜索订阅" placeholder="搜索订阅…" value={query} onChange={e => setQuery(e.target.value)} /></label><Select value={sort} onValueChange={setSort}><SelectTrigger className="sort-control" aria-label="排序方式"><SlidersHorizontal size={15} /><SelectValue /></SelectTrigger><SelectContent><SelectItem value="expiry">到期时间</SelectItem><SelectItem value="price">月均费用从高到低</SelectItem><SelectItem value="name">名称排序</SelectItem></SelectContent></Select><div className="view-toggle" role="group" aria-label="视图切换"><button className={viewMode === "grid" ? "active" : ""} aria-pressed={viewMode === "grid"} title="卡片视图" onClick={() => { setViewMode("grid"); try { localStorage.setItem("membership-view", "grid"); } catch { /* storage can be unavailable */ } }}><LayoutGrid size={15} /></button><button className={viewMode === "list" ? "active" : ""} aria-pressed={viewMode === "list"} title="紧凑列表视图" onClick={() => { setViewMode("list"); try { localStorage.setItem("membership-view", "list"); } catch { /* storage can be unavailable */ } }}><List size={15} /></button></div></div></div>
+      <Tabs value={category} onValueChange={setCategory} className="category-tabs"><TabsList className="category-list" aria-label="会员分类"><TabsTrigger value="全部"><LayoutGrid />全部<span>{displayedCount}</span></TabsTrigger>{visibleCategories.map(({ category: c, count }) => { const Icon = categoryIcons[c]; return <TabsTrigger key={c} value={c}><Icon />{c}<span>{count}</span></TabsTrigger>; })}</TabsList></Tabs>
 
       <section className={`subscription-grid ${viewMode === "list" ? "compact-view" : ""}`} aria-label="会员列表">
         {loading && <div className="loading-state"><span className="loading-pulse" />正在读取你的会员清单…</div>}
-        {!loading && filtered.map(item => viewMode === "list"
-          ? <SubscriptionRow key={item.id} item={item} today={today} canManage={!authRequired} onEdit={() => edit(item)} />
-          : <SubscriptionCard key={item.id} item={item} today={today} canManage={!authRequired} onEdit={() => edit(item)} />)}
-        {!loading && !syncError && filtered.length === 0 && (expenseFilter !== "all" || phoneAccounts.length === 0) && <div className="empty-state"><LayoutGrid size={32} /><h2>{items.length ? "没有找到符合条件的订阅" : authRequired ? publicDashboard ? "还没有会员记录" : "登录查看你的会员" : "把你的第一个会员加进来"}</h2><button className="button primary" onClick={() => items.length ? (setCategory("全部"), setQuery(""), setExpenseFilter("all")) : edit()}>{items.length ? "清除筛选" : authRequired ? "管理员登录" : "添加订阅"}</button></div>}
-      </section></>}
+        {!loading && filtered.map(entry => entry.kind === "phone"
+          ? <PhoneSummaryCard key="phone-summary" summary={phones} compact={viewMode === "list"} onOpen={() => setPhoneOpen(true)} />
+          : viewMode === "list"
+            ? <SubscriptionRow key={entry.item.id} item={entry.item} today={today} canManage={!authRequired} onEdit={() => edit(entry.item)} />
+            : <SubscriptionCard key={entry.item.id} item={entry.item} today={today} canManage={!authRequired} onEdit={() => edit(entry.item)} />)}
+        {!loading && !syncError && filtered.length === 0 && <div className="empty-state"><LayoutGrid size={32} /><h2>{items.length ? "没有找到符合条件的订阅" : authRequired ? publicDashboard ? "还没有会员记录" : "登录查看你的会员" : "把你的第一个会员加进来"}</h2><button className="button primary" onClick={() => items.length ? (setCategory("全部"), setQuery(""), setExpenseFilter("all")) : edit()}>{items.length ? "清除筛选" : authRequired ? "管理员登录" : "添加订阅"}</button></div>}
+      </section>
       </>}
       <footer className="page-footer"><time dateTime={clock.toISOString()}>{footerTime}</time></footer>
     </main>
@@ -489,6 +505,7 @@ export default function Dashboard() {
         <div className="cost-total"><span>合计 / 月</span><strong>¥{currency(monthly)}</strong></div>
       </DialogContent>
     </Dialog>
+    {!authRequired && phoneOpen && <Suspense fallback={<p role="status">正在读取号码管理…</p>}><PhoneAccountsDialog open onOpenChange={setPhoneOpen} accounts={phoneAccounts} items={items} today={today} displayPreference={phoneDisplay} target={phoneTarget} onTargetHandled={clearPhoneTarget} onChanged={() => loadRecords(true)} /></Suspense>}
     {!authRequired && historyOpen && <HistoryDialog key={historyItem?.id || "all"} open={historyOpen} onOpenChange={setHistoryOpen} subscriptionId={historyItem?.id} subscriptionName={historyItem?.name} items={items} today={today} onChanged={() => void loadRecords(true)} />}
     {!authRequired && backupOpen && <BackupDialog open={backupOpen} onOpenChange={setBackupOpen} onImported={async () => { await loadRecords(); }} />}
     <LoginDialog open={loginOpen} onOpenChange={setLoginOpen} onSuccess={loadRecords} />

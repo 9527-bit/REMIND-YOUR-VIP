@@ -19,6 +19,7 @@ export type BackupSubscription = Subscription & { renewalAnchorDate: string };
 export type BackupDocument = {
   application: "vip-manager"; formatVersion: 1 | 2 | 3 | 4 | 5; exportedAt: string; currency: "CNY";
   phoneAccounts?: import("./phones.ts").PhoneAccount[];
+  phoneDisplayChargeId?: string | null;
   subscriptions: BackupSubscription[]; renewalLogs: RenewalLog[];
 };
 export type ImportPreview = {

@@ -1,18 +1,21 @@
 import { useEffect, useState } from "react";
-import { History, Pencil, Plus, Search, Smartphone, Trash2 } from "lucide-react";
+import { ArrowLeft, ChevronDown, History, Pencil, Plus, Search, Smartphone, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { CompactDialogHeader } from "@/components/context-help";
-import { apiRequest } from "@/lib/api";
+import { apiRequest, ApiError } from "@/lib/api";
+import { HistoryDialog } from "@/components/history-dialog";
 import { money } from "../../../shared/currency.ts";
 import { monthlyCostCny, renewDate, type Subscription } from "../../../shared/subscriptions.ts";
-import { maskedPhone, nextPhoneBill, phoneCarriers, phoneChargeTypes, phoneMonthlyCost, type PhoneAccount, type PhoneChargeType } from "../../../shared/phones.ts";
+import { maskedPhone, nextPhoneBill, phoneCarriers, phoneChargeTypes, phoneMonthlyCost, type PhoneAccount, type PhoneChargeType, type PhoneDisplayPreference } from "../../../shared/phones.ts";
 
 type Props = {
-  accounts: PhoneAccount[]; items: Subscription[]; today: string; query: string; showEmpty: boolean; onQueryChange: (query: string) => void;
+  open: boolean; onOpenChange: (open: boolean) => void;
+  accounts: PhoneAccount[]; items: Subscription[]; today: string;
+  displayPreference: PhoneDisplayPreference;
   target: Subscription | null; onTargetHandled: () => void;
-  onChanged: () => Promise<void>; onHistory: (item: Subscription) => void; onEditingChange: (editing: boolean) => void;
+  onChanged: () => Promise<void>;
 };
 type AccountDraft = Omit<PhoneAccount, "balance" | "balanceAsOf"> & { balance: string; balanceAsOf: string };
 type ChargeDraft = {
@@ -31,16 +34,20 @@ function chargeDraft(accountId: string, today: string, item?: Subscription): Cha
     reminderDays: item?.reminderDays ?? 7, note: item?.note ?? "" };
 }
 
-/** One card per number; charges share the existing payment ledger and immutable billing snapshots. */
-export function PhoneAccountsPanel({ accounts, items, today, query, showEmpty, onQueryChange, target, onTargetHandled, onChanged, onHistory, onEditingChange }: Props) {
+/** Keep number settings and fees inside one manager; closing an editor returns to its number list. */
+export function PhoneAccountsDialog({ open, onOpenChange, accounts, items, today, displayPreference, target, onTargetHandled, onChanged }: Props) {
   const [account, setAccount] = useState<AccountDraft | null>(null);
   const [charge, setCharge] = useState<ChargeDraft | null>(null);
   const [removal, setRemoval] = useState<Removal | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [historyItem, setHistoryItem] = useState<Subscription | null>(null);
+  function handleError(reason: unknown, fallback: string) {
+    if (reason instanceof ApiError && reason.status === 401) { void onChanged(); return; }
+    setError(reason instanceof Error ? reason.message : fallback);
+  }
 
-  useEffect(() => { onEditingChange(Boolean(account || charge || removal)); }, [Boolean(account), Boolean(charge), Boolean(removal), onEditingChange]);
-  useEffect(() => () => onEditingChange(false), [onEditingChange]);
   useEffect(() => {
     if (!target?.phoneAccountId) return;
     setCharge(chargeDraft(target.phoneAccountId,today,target)); setError(null); onTargetHandled();
@@ -59,7 +66,7 @@ export function PhoneAccountsPanel({ accounts, items, today, query, showEmpty, o
       await apiRequest("/phones", { action: account.id ? "update" : "create", ...(account.id ? { id: account.id, version: account.version } : {}),
         item: { ...account, balance: account.balance === "" ? null : Number(account.balance), balanceAsOf: account.balance === "" ? null : account.balanceAsOf } });
       setAccount(null); await onChanged(); toast.success("号码已保存");
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "保存失败，请重试。"); }
+    } catch (reason) { handleError(reason,"保存失败，请重试。"); }
     finally { setBusy(false); }
   }
 
@@ -90,7 +97,7 @@ export function PhoneAccountsPanel({ accounts, items, today, query, showEmpty, o
       await apiRequest("/subscriptions", { action: original ? "update" : "create", item,
         ...(original ? { id: original.id, version: original.version } : {}) });
       setCharge(null); await onChanged(); toast.success(original ? "费用项目已更新" : "费用项目已添加");
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "保存失败，请重试。"); }
+    } catch (reason) { handleError(reason,"保存失败，请重试。"); }
     finally { setBusy(false); }
   }
 
@@ -100,7 +107,7 @@ export function PhoneAccountsPanel({ accounts, items, today, query, showEmpty, o
     try {
       await apiRequest(removal.kind === "account" ? "/phones" : "/subscriptions", { action: "delete", id: removal.item.id, version: removal.item.version });
       setRemoval(null); await onChanged(); toast.success("已移除，已有流水保留");
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "移除失败。"); }
+    } catch (reason) { handleError(reason,"移除失败。"); }
     finally { setBusy(false); }
   }
 
@@ -109,35 +116,50 @@ export function PhoneAccountsPanel({ accounts, items, today, query, showEmpty, o
     return `${owner.label} ${owner.number} ${owner.carrier} ${owner.note} ${children.map(item => `${item.name} ${item.plan}`).join(" ")}`.toLowerCase().includes(query.toLowerCase());
   });
   const linkable = items.filter(item => item.expenseType !== "phone" && (!item.currency || item.currency === "CNY") && (item.cycle === "monthly" || item.cycle === "yearly"));
+  const displayable = items.filter(item => item.expenseType === "phone" && item.phoneChargeType !== "once" && accounts.some(account => account.id === item.phoneAccountId));
+  async function changeDisplay(selectedChargeId: string) {
+    if (busy) return;
+    setBusy(true); setError(null);
+    try {
+      await apiRequest("/phones/display",{selectedChargeId:selectedChargeId || null,version:displayPreference.version});
+      await onChanged(); toast.success("首页展示套餐已更新");
+    } catch(reason) { handleError(reason,"设置失败，请重试。"); }
+    finally {setBusy(false);}
+  }
 
-  return <section className="phone-section" aria-label="手机号码管理">
-    <div className="phone-section-heading"><div><h2><Smartphone size={19} />手机话费 <span>{accounts.length} 个号码</span></h2><p>按号码管理月租、年包和一次性费用</p></div><button className="button secondary" onClick={() => editAccount()}><Plus size={16} />添加号码</button></div>
-    {showEmpty && <label className="search phone-search"><Search size={15} /><input aria-label="搜索手机号码" placeholder="搜索号码、备注或套餐…" value={query} onChange={event => onQueryChange(event.target.value)} /></label>}
-    <div className="phone-grid">
+  return <Dialog open={open} onOpenChange={value => { if (!busy) onOpenChange(value); }}><DialogContent className={`membership-dialog phone-manager-dialog${account || charge ? " phone-editor-active" : ""}`} onCloseAutoFocus={event => { event.preventDefault(); document.querySelector<HTMLButtonElement>(".phone-summary-open")?.focus(); }}>
+    {(account || charge) && <button type="button" className="text-action phone-back" disabled={busy} onClick={() => { setAccount(null); setCharge(null); setError(null); }}><ArrowLeft size={15} />返回号码列表</button>}
+    {!account && !charge && <>
+    <CompactDialogHeader title="手机话费" helpLabel="手机话费管理说明" help="按号码管理月租、年包和一次性费用。月均为套餐费用折算；余额按号码手动核对，添加或编辑号码不会改变已记录的付款。" />
+    <div className="phone-manager-toolbar"><span className="phone-manager-count">{accounts.length} 个号码</span><button className="button secondary" onClick={() => editAccount()}><Plus size={16} />添加号码</button></div>
+    <label className="form-field phone-display-setting"><span>首页展示套餐</span><select aria-label="首页展示套餐" value={displayPreference.selectedChargeId ?? ""} disabled={busy} onChange={event => void changeDisplay(event.target.value)}><option value="">自动选择最近到期年包</option>{displayable.map(item => <option key={item.id} value={item.id}>{accounts.find(account => account.id === item.phoneAccountId)!.label} · {item.plan || item.name} · {item.endDate}</option>)}</select><small>仅切换首页剩余时间和进度条，合计月均仍包含全部号码。无年包时自动展示月租。</small></label>
+    {error && <p className="login-error" role="alert">{error}</p>}
+    <label className="search phone-search"><Search size={15} /><input aria-label="搜索手机号码" placeholder="搜索号码、备注或套餐…" value={query} onChange={event => setQuery(event.target.value)} /></label>
+    <div className="phone-account-list">
       {visible.map(owner => {
         const children = items.filter(item => item.phoneAccountId === owner.id);
         const next = nextPhoneBill(children,today), monthly = phoneMonthlyCost(children,today);
-        return <article className="phone-card" key={owner.id} aria-label={`号码 ${owner.label}`}>
-          <header className="phone-card-heading"><div className="phone-card-icon"><Smartphone size={22} /></div><div className="phone-card-identity"><h3>{owner.label}</h3><p>{maskedPhone(owner.number)} <span>· {owner.carrier}</span></p></div><button className="button light phone-icon-button" aria-label={`编辑号码 ${owner.label}`} title="编辑号码与余额" onClick={() => editAccount(owner)}><Pencil size={15} /></button></header>
-          <div className="phone-metrics"><div><span>常规月均成本</span><strong>{money(monthly)}<small>/月</small></strong></div><div><span>话费余额 · 手动记录</span><strong>{owner.balance === null ? "未填写" : money(owner.balance)}</strong><small>{owner.balanceAsOf ? `核对于 ${owner.balanceAsOf}` : "可在编辑号码中填写"}</small></div></div>
+        return <article className="phone-account-row" key={owner.id} aria-label={`号码 ${owner.label}`}><details className="phone-account-details">
+          <summary aria-label={`展开号码 ${owner.label}`}><span className="phone-card-icon"><Smartphone size={20} /></span><span className="phone-card-identity"><strong>{owner.label}</strong><span>{maskedPhone(owner.number)} · {owner.carrier}</span></span><span className="phone-account-cost"><strong>{money(monthly)}<small>/月</small></strong><small>{children.length} 个费用项目</small></span><ChevronDown size={15} className="phone-expand-icon" /></summary>
+          <div className="phone-account-body"><div className="phone-account-tools"><button className="text-action" aria-label={`编辑号码 ${owner.label}`} onClick={() => editAccount(owner)}><Pencil size={14} />编辑号码与余额</button><button className="text-danger" disabled={children.length > 0} title={children.length ? "先移除费用项目，再移除号码" : "移除号码"} aria-label={`移除号码 ${owner.label}`} onClick={() => { setError(null); setRemoval({kind:"account",item:owner}); }}><Trash2 size={14} />移除号码</button></div>
+          <p className="phone-balance">话费余额 <strong>{owner.balance === null ? "未填写" : money(owner.balance)}</strong><span>{owner.balanceAsOf ? `手动核对于 ${owner.balanceAsOf}` : "可在编辑号码中填写"}</span></p>
           <p className="phone-next">下次账单 / 年包到期 <b>{next ?? "暂无"}</b></p>
-          <details className="phone-charge-details"><summary>{children.length} 个费用项目<span>查看明细</span></summary>
             <ul className="phone-charge-list">{children.map(item => <li key={item.id}>
               <div className="phone-charge-heading"><strong>{item.plan || item.name}</strong><span className="phone-charge-tag">{phoneChargeTypes[item.phoneChargeType!]}</span></div>
               <div className="phone-charge-price"><span>{money(item.amount)}{item.phoneChargeType === "yearly" ? "/年" : item.phoneChargeType === "monthly" ? "/月" : " / 次"}</span><small>{item.phoneChargeType === "once" ? "不计入常规月均" : `月均 ${money(monthlyCostCny(item))}`}</small></div>
               <p>{item.phoneChargeType === "once" ? `发生日期 ${item.startDate}` : `${item.startDate} — ${item.endDate}`}{item.phoneChargeType === "yearly" && item.endDate < today ? " · 已到期" : ""}</p>
               {item.phoneChargeType !== "once" && <p>{item.autoRenew ? "持续生成账单" : "仅记录本期"} · {item.reminderEnabled ? "提醒已开启" : "提醒已关闭"}</p>}
-              <div className="phone-charge-actions"><button className="text-action" onClick={() => { setError(null); setCharge(chargeDraft(owner.id,today,item)); }}><Pencil size={13} />编辑费用</button><button className="text-action" onClick={() => onHistory(item)}><History size={13} />流水</button><button className="text-danger" onClick={() => { setError(null); setRemoval({kind:"charge",item}); }}><Trash2 size={13} />移除</button></div>
+              <div className="phone-charge-actions"><button className="text-action" onClick={() => { setError(null); setCharge(chargeDraft(owner.id,today,item)); }}><Pencil size={13} />编辑费用</button><button className="text-action" onClick={() => setHistoryItem(item)}><History size={13} />流水</button><button className="text-danger" onClick={() => { setError(null); setRemoval({kind:"charge",item}); }}><Trash2 size={13} />移除</button></div>
             </li>)}</ul>
             {!children.length && <p className="phone-hint">添加月租或年包后，这里会展示账期和费用明细。</p>}
-          </details>
-          <div className="phone-card-footer"><button className="button light" aria-label={`为 ${owner.label} 添加费用`} onClick={() => { setError(null); setCharge(chargeDraft(owner.id,today)); }}><Plus size={15} />添加费用</button><button className="text-danger" disabled={children.length > 0} title={children.length ? "先移除费用项目，再移除号码" : "移除号码"} aria-label={`移除号码 ${owner.label}`} onClick={() => { setError(null); setRemoval({kind:"account",item:owner}); }}><Trash2 size={14} /></button></div>
-        </article>;
+          <div className="phone-card-footer"><button className="button light" aria-label={`为 ${owner.label} 添加费用`} onClick={() => { setError(null); setCharge(chargeDraft(owner.id,today)); }}><Plus size={15} />添加费用</button></div>
+          </div></details></article>;
       })}
     </div>
-    {showEmpty && !visible.length && <p className="phone-hint">{accounts.length ? "没有匹配的号码，可修改搜索条件。" : "添加一个号码，再分别登记它的月租、年包和临时费用。"}</p>}
+    {!visible.length && <p className="phone-hint">{accounts.length ? "没有匹配的号码，可修改搜索条件。" : "添加一个号码，再分别登记它的月租、年包和临时费用。"}</p>}
+    </>}
 
-    <Dialog open={Boolean(account)} onOpenChange={open => { if (!open && !busy) setAccount(null); }}><DialogContent className="membership-dialog phone-dialog">
+    {account && <div className="phone-dialog">
       <CompactDialogHeader title={account?.id ? "编辑手机号码" : "添加手机号码"} helpLabel="号码管理说明" help="余额由你手动核对，不计入消费。每个号码可分别添加月租、年包和一次性费用。" />
       {account && <form onSubmit={event => { event.preventDefault(); void saveAccount(); }}>
         <div className="form-grid"><label className="form-field"><span>号码备注 *</span><input autoFocus required maxLength={30} value={account.label} placeholder="例如：主用卡、备用卡" onChange={event => setAccount({...account,label:event.target.value})} /></label><label className="form-field"><span>手机号码 *</span><input required type="tel" inputMode="tel" pattern="1[3-9][0-9]{9}" maxLength={11} autoComplete="off" value={account.number} onChange={event => setAccount({...account,number:event.target.value})} /></label>
@@ -146,9 +168,9 @@ export function PhoneAccountsPanel({ accounts, items, today, query, showEmpty, o
           <label className="form-field wide"><span>号码备注说明</span><textarea maxLength={500} value={account.note} onChange={event => setAccount({...account,note:event.target.value})} /></label></div>
         {error && <p className="login-error" role="alert">{error}</p>}<div className="dialog-actions dialog-right-actions"><button className="button light" type="button" disabled={busy} onClick={() => setAccount(null)}>取消</button><button className="button primary" disabled={busy}>{busy ? "保存中…" : "保存号码"}</button></div>
       </form>}
-    </DialogContent></Dialog>
+    </div>}
 
-    <Dialog open={Boolean(charge)} onOpenChange={open => { if (!open && !busy) setCharge(null); }}><DialogContent className="membership-dialog phone-dialog">
+    {charge && <div className="phone-dialog">
       <CompactDialogHeader title={charge?.original ? "编辑号码费用" : "添加号码费用"} helpLabel="号码费用说明" help="年包按总价÷12计入常规月均预算，付款按实际支付金额记录。一次性费用不计入常规月均。已生成账单保留原金额，可在流水核对后确认付款；充值不应再次作为套餐费用录入。" />
       {charge && <form onSubmit={event => { event.preventDefault(); void saveCharge(); }}>
         <p className="phone-editor-owner">{accounts.find(item => item.id === charge.accountId)?.label} · {maskedPhone(accounts.find(item => item.id === charge.accountId)?.number ?? "")}</p>
@@ -162,8 +184,9 @@ export function PhoneAccountsPanel({ accounts, items, today, query, showEmpty, o
           <label className="form-field wide"><span>费用备注</span><textarea maxLength={500} value={charge.note} onChange={event => setCharge({...charge,note:event.target.value})} /></label>
         </div>{error && <p className="login-error" role="alert">{error}</p>}<div className="dialog-actions dialog-right-actions"><button className="button light" type="button" disabled={busy} onClick={() => setCharge(null)}>取消</button><button className="button primary" disabled={busy}>{busy ? "保存中…" : "保存费用"}</button></div>
       </form>}
-    </DialogContent></Dialog>
+    </div>}
 
     <AlertDialog open={Boolean(removal)} onOpenChange={open => { if (!open && !busy) setRemoval(null); }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>移除{removal?.kind === "account" ? "这个号码" : "这项费用"}？</AlertDialogTitle><AlertDialogDescription>{removal?.kind === "account" ? removal.item.label : removal?.item.name}将从清单移除，已有付款流水会保留。{removal?.kind === "charge" ? "之后停止为这项费用生成账单。" : ""}</AlertDialogDescription></AlertDialogHeader>{error && <p className="login-error" role="alert">{error}</p>}<AlertDialogFooter><AlertDialogCancel disabled={busy}>取消</AlertDialogCancel><AlertDialogAction variant="destructive" disabled={busy} onClick={event => { event.preventDefault(); void remove(); }}>确认移除</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
-  </section>;
+    {historyItem && <HistoryDialog open onOpenChange={value => { if (!value) setHistoryItem(null); }} subscriptionId={historyItem.id} subscriptionName={historyItem.name} items={items} today={today} onChanged={() => void onChanged()} />}
+  </DialogContent></Dialog>;
 }

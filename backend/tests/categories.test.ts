@@ -59,7 +59,7 @@ test("v6 category migration preserves money, dates, owners and history, and runs
   const others = otherTables.map(snapshot);
   db.close(); db = openDatabase(path);
   try {
-    assert.equal(db.prepare("PRAGMA user_version").get()!.user_version, 12);
+    assert.equal(db.prepare("PRAGMA user_version").get()!.user_version, 13);
     assert.equal(db.prepare("PRAGMA integrity_check").get()!.integrity_check, "ok");
     const after = snapshot("subscriptions");
     assert.equal(after.length, before.length);
@@ -71,7 +71,7 @@ test("v6 category migration preserves money, dates, owners and history, and runs
         assert.deepEqual({ ...actual }, { ...old, category, version: Number(old.version) + 1, updated_at: actual.updated_at });
       }
     }
-    otherTables.forEach((table, index) => assert.deepEqual(snapshot(table).map(row=>{const {payment_json,previous_rate_pending,fixed_bill_json,...rest}=row;return rest;}), others[index].map(row=>({...row}))));
+    otherTables.forEach((table, index) => assert.deepEqual(snapshot(table).map(row=>{const {payment_json,previous_rate_pending,fixed_bill_json,phone_display_subscription_id,phone_display_version,...rest}=row;return rest;}), others[index].map(row=>({...row}))));
     service = new SubscriptionService(db, "Asia/Shanghai");
     const migrated = service.list(1).items.find(record => record.name === "醒图会员")!;
     assert.throws(() => service.execute(1, { action: "update", id: migrated.id, version: migrated.version - 1, item: { ...migrated, category: "影音娱乐" } }), { status: 409 });

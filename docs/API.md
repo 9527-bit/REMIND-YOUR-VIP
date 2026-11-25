@@ -99,3 +99,6 @@ preview 返回 revision、subscriptions、logs、existing、newSubscriptions、s
 - 手机费用按对应周期生成固定账单快照；一次性费用仅在发生日期或之后生成一次。`autoRenew=false` 的号码费用仍记录本期，不生成后续期。付款沿用已有 `/api/payments/*`，修改套餐不回写历史账单。
 - 登录后的 `/api/dashboard` 增加 `phoneAccounts`；公开看板不返回该字段，并排除全部 `expenseType=phone` 子项目。
 - v5 备份包含 `phoneAccounts` 与子项目关联。导入先校验号码引用、号码唯一性，再原子恢复；revision 包含号码状态。导入旧格式时缺失号码列表视为空。
+
+- `POST /api/phones/display` 接受 `{ selectedChargeId: UUID|null, version: number }`，保存当前用户首页展示套餐，返回 `{selectedChargeId,version}`。null 表示自动；只允许当前账号的月租/年包，拒绝一次性费用。乐观版本冲突返回 409，套餐删除时清除选择并递增版本。
+- 私人 `/api/dashboard` 增加 `phoneDisplay`；公开响应不返回此字段。v5 备份增加可选 `phoneDisplayChargeId`，旧备份缺省为自动；恢复校验其引用，预览 revision 包含该设置。

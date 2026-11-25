@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
-import { phoneCarriers, type PhoneAccount } from "../../shared/phones.ts";
+import { phoneCarriers, type PhoneAccount, type PhoneDisplayPreference } from "../../shared/phones.ts";
 import { transaction } from "./database.ts";
 import { dateSchema, idSchema } from "./validation.ts";
 import { ApiError } from "./errors.ts";
@@ -29,6 +29,25 @@ export class PhoneAccounts {
 
   list(owner: number): PhoneAccount[] {
     return this.db.prepare("SELECT * FROM phone_accounts WHERE user_id=? ORDER BY label,id").all(owner).map(phoneFromRow);
+  }
+
+  preference(owner: number): PhoneDisplayPreference {
+    const row = this.db.prepare("SELECT phone_display_subscription_id,phone_display_version FROM subscription_preferences WHERE user_id=?").get(owner);
+    const id = row?.phone_display_subscription_id;
+    const valid = id && this.db.prepare("SELECT id FROM subscriptions WHERE user_id=? AND id=? AND expense_type='phone' AND phone_charge_type IN ('monthly','yearly')").get(owner,String(id));
+    return { selectedChargeId: valid ? String(id) : null, version: Number(row?.phone_display_version ?? 0) };
+  }
+
+  setPreference(owner: number, body: unknown): PhoneDisplayPreference {
+    const input = z.object({ selectedChargeId: idSchema.nullable(), version: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER-1) }).strict().parse(body);
+    return transaction(this.db, () => {
+      const current = this.preference(owner);
+      if (input.version !== current.version) throw new ApiError(409,"首页展示设置已在其他页面修改，请重新打开。","VERSION_CONFLICT");
+      if (input.selectedChargeId && !this.db.prepare("SELECT id FROM subscriptions WHERE user_id=? AND id=? AND expense_type='phone' AND phone_charge_type IN ('monthly','yearly')").get(owner,input.selectedChargeId)) throw new ApiError(404,"请选择当前账号下的月租或年包套餐。","NOT_FOUND");
+      this.db.prepare("INSERT INTO subscription_preferences(user_id,initialized,phone_display_subscription_id,phone_display_version) VALUES(?,0,?,?) ON CONFLICT(user_id) DO UPDATE SET phone_display_subscription_id=excluded.phone_display_subscription_id,phone_display_version=excluded.phone_display_version")
+        .run(owner,input.selectedChargeId,current.version+1);
+      return this.preference(owner);
+    });
   }
 
   execute(owner: number, body: unknown): { item?: PhoneAccount; id?: string } {

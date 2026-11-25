@@ -289,8 +289,7 @@ try {
   assert.equal(ledger.filter(l=>l.payment&&!l.payment.voidedAt).length,2);
   console.log('PASS historical batch preview, per-entry edits, payment totals, void audit and mobile ledger');
 
-  await page.waitForFunction(()=>document.querySelectorAll('[data-sonner-toast]').length===0,undefined,{timeout:12000});
-  await page.screenshot({path:output+"/desktop-grid.png",fullPage:true});
+  await page.screenshot({path:output+"/desktop-grid.png",fullPage:true,style:"[data-sonner-toaster]{visibility:hidden!important}"});
   await page.getByRole("button",{name:"支出分析",exact:true}).click();
   await page.getByRole("heading",{name:"支出分析",exact:true}).waitFor();
   await page.waitForFunction(()=>document.querySelector('.payment-kpis strong')?.textContent!=='—');

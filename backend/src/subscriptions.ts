@@ -182,6 +182,7 @@ export class SubscriptionService {
         return { item: this.get(owner,item.id), renewal: renewalFromRow(this.history.get(owner,input.logId)), undoUntil: null };
       }
       if (input.action === "delete") {
+        this.db.prepare("UPDATE subscription_preferences SET phone_display_subscription_id=NULL,phone_display_version=phone_display_version+1 WHERE user_id=? AND phone_display_subscription_id=?").run(owner,item.id);
         // Keep the ledger, but never let an old receipt undo a future record reusing this UUID.
         this.db.prepare("UPDATE subscription_renewal_logs SET undo_until=NULL,resulting_version=NULL WHERE user_id=? AND subscription_id=?").run(owner,item.id);
         this.db.prepare("DELETE FROM subscriptions WHERE user_id=? AND id=? AND version=?").run(owner,item.id,item.version);

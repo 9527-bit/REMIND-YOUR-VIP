@@ -30,6 +30,7 @@ const renewalSchema = z.object({
 export const backupSchema = z.object({
   application: z.literal("vip-manager"), formatVersion: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5)]), exportedAt: timestamp, currency: z.literal("CNY"),
   phoneAccounts: z.array(phoneAccountSchema).max(200).default([]),
+  phoneDisplayChargeId: idSchema.nullable().default(null),
   subscriptions: z.array(z.preprocess(migrateLegacyCurrency, subscriptionObject.extend({ renewalAnchorDate: dateSchema }).refine(validCurrency, "订阅汇率数据不完整。").refine(validPeriod, "到期日期必须晚于开始日期。")
     .refine(validExpenseSettings, "费用类型与周期不一致。")
     .refine(item => {
@@ -50,6 +51,7 @@ export const backupSchema = z.object({
   if (phones.size !== backup.phoneAccounts.length || new Set(backup.phoneAccounts.map(phone => phone.number)).size !== phones.size) ctx.addIssue({ code: "custom", message: "号码备份包含重复号码或标识。" });
   if (backup.formatVersion !== 5 && (phones.size || backup.subscriptions.some(item => item.expenseType === "phone"))) ctx.addIssue({ code: "custom", message: "手机号码数据需要 v5 备份格式。" });
   if (backup.subscriptions.some(item => item.expenseType === "phone" && (!phones.has(item.phoneAccountId!) || item.currency !== "CNY" || (item.phoneChargeType === "once" && cycleBoundary(item.startDate,"custom",1,1) !== item.endDate)))) ctx.addIssue({ code: "custom", message: "号码费用缺少所属号码或账期不正确。" });
+  if (backup.phoneDisplayChargeId && !backup.subscriptions.some(item => item.id === backup.phoneDisplayChargeId && item.expenseType === "phone" && item.phoneChargeType !== "once")) ctx.addIssue({code:"custom",message:"首页展示套餐必须对应备份内的月租或年包。"});
 });
 export const importSchema = z.object({
   backup: backupSchema, mode: z.enum(["merge", "replace"]), expectedRevision: z.string().regex(/^[a-f0-9]{64}$/),
@@ -65,6 +67,7 @@ export class BackupService {
     return {
       application: "vip-manager", formatVersion: 5, exportedAt: new Date().toISOString(), currency: "CNY",
       phoneAccounts: new PhoneAccounts(this.db).list(owner),
+      phoneDisplayChargeId: new PhoneAccounts(this.db).preference(owner).selectedChargeId,
       subscriptions: this.db.prepare("SELECT * FROM subscriptions WHERE user_id=? ORDER BY id").all(owner)
         .map(row => ({ ...subscriptionFromRow(row), renewalAnchorDate: String(row.renewal_anchor_date) || billingAnchor(subscriptionFromRow(row)) })),
       renewalLogs: this.db.prepare("SELECT * FROM subscription_renewal_logs WHERE user_id=? ORDER BY id").all(owner).map(renewalFromRow),
@@ -76,7 +79,8 @@ export class BackupService {
     const subscriptions = this.db.prepare("SELECT * FROM subscriptions WHERE user_id=? ORDER BY id").all(owner);
     const logs = this.db.prepare("SELECT * FROM subscription_renewal_logs WHERE user_id=? ORDER BY id").all(owner);
     const phones = this.db.prepare("SELECT * FROM phone_accounts WHERE user_id=? ORDER BY id").all(owner);
-    return createHash("sha256").update(JSON.stringify({ subscriptions, logs, phones })).digest("hex");
+    const phoneDisplay = new PhoneAccounts(this.db).preference(owner);
+    return createHash("sha256").update(JSON.stringify({ subscriptions, logs, phones, phoneDisplay })).digest("hex");
   }
 
   preview(owner: number, value: unknown): ImportPreview {
@@ -100,6 +104,7 @@ export class BackupService {
       if (this.revision(owner) !== input.expectedRevision) throw new ApiError(409,"预览后数据已有变化，请重新预览导入文件。","VERSION_CONFLICT");
       const versions = new Map(this.db.prepare("SELECT id,version FROM subscriptions WHERE user_id=?").all(owner).map(row => [String(row.id),Number(row.version)]));
       const phoneVersions = new Map(new PhoneAccounts(this.db).list(owner).map(phone => [phone.id,phone.version]));
+      const phoneDisplay = new PhoneAccounts(this.db).preference(owner);
       if (input.mode === "replace") {
         this.db.prepare("DELETE FROM subscription_renewal_logs WHERE user_id=?").run(owner);
         this.db.prepare("DELETE FROM subscriptions WHERE user_id=?").run(owner);
@@ -145,6 +150,10 @@ export class BackupService {
         if (Number(result.changes) && log.fixedBill) this.db.prepare("UPDATE subscription_renewal_logs SET fixed_bill_json=? WHERE user_id=? AND id=?").run(JSON.stringify(log.fixedBill),owner,log.id);
       }
       this.db.prepare("INSERT INTO subscription_preferences(user_id,initialized) VALUES(?,1) ON CONFLICT(user_id) DO UPDATE SET initialized=1").run(owner);
+      if (input.mode === "replace" || !phoneDisplay.selectedChargeId) {
+        this.db.prepare("UPDATE subscription_preferences SET phone_display_subscription_id=?,phone_display_version=phone_display_version+1 WHERE user_id=?")
+          .run(input.backup.phoneDisplayChargeId,owner);
+      }
       return { importedSubscriptions, importedLogs, skippedSubscriptions };
     });
   }

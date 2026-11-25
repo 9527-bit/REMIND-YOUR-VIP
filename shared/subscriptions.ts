@@ -25,7 +25,7 @@ export function isFixedExpense(item: Pick<Subscription, "expenseType">): boolean
 export function remindersEnabled(item: Pick<Subscription, "expenseType" | "reminderEnabled">): boolean {
   return item.reminderEnabled ?? !isFixedExpense(item);
 }
-export type DashboardSnapshot = { items: Subscription[]; phoneAccounts?: import("./phones.ts").PhoneAccount[]; canManage: boolean; publicDashboard: boolean; today: string; timeZone: string };
+export type DashboardSnapshot = { items: Subscription[]; phoneAccounts?: import("./phones.ts").PhoneAccount[]; phoneDisplay?: import("./phones.ts").PhoneDisplayPreference; canManage: boolean; publicDashboard: boolean; today: string; timeZone: string };
 export const palette = ["#d74747", "#269979", "#497ccd", "#8a5fc4", "#cf8b30", "#3b424c"];
 export function dateKey(date = new Date()): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;

@@ -1,4 +1,97 @@
-.phone-section{margin:22px 0 28px;min-width:0}.phone-section-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:15px}.phone-section-heading h2{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:0;font-size:1rem;font-weight:650}.phone-section-heading h2>span{font-size:.75rem;font-weight:400;color:var(--muted-foreground)}.phone-section-heading p{font-size:.8rem;color:var(--muted-foreground);margin:5px 0 0}.phone-section-heading>.button{flex-shrink:0}.phone-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:16px}.phone-card{min-width:0;overflow:hidden;border:1px solid var(--border);border-radius:16px;padding:21px;background:var(--card);color:var(--card-foreground);box-shadow:0 3px 14px #00000004}.phone-card-heading{display:flex;align-items:center;gap:11px}.phone-card-icon{display:flex;align-items:center;justify-content:center;width:42px;height:42px;flex-shrink:0;border-radius:12px;background:color-mix(in srgb,#269979 12%,transparent);color:#269979}.phone-card-identity{min-width:0;flex:1}.phone-card-identity h3{font-size:1rem;font-weight:650;overflow-wrap:anywhere;margin:0 0 4px}.phone-card-identity p{font-size:.8rem;color:var(--muted-foreground);margin:0;font-variant-numeric:tabular-nums}.phone-icon-button{padding:8px!important}.phone-metrics{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:22px 0 15px}.phone-metrics>div{min-width:0;display:flex;flex-direction:column;gap:5px}.phone-metrics>div>span{font-size:.75rem;color:var(--muted-foreground)}.phone-metrics strong{font-size:1.5rem;line-height:1.35;font-variant-numeric:tabular-nums;overflow-wrap:anywhere;font-weight:650}.phone-metrics strong>small{font-size:.75rem;font-weight:400;margin-left:4px;color:var(--muted-foreground)}.phone-metrics>div>small{font-size:.7rem;color:var(--muted-foreground)}.phone-next{display:flex;flex-wrap:wrap;justify-content:space-between;gap:7px;font-size:.77rem;color:var(--muted-foreground);padding-bottom:15px;border-bottom:1px solid var(--border);margin:0}.phone-next b{font-weight:500;color:var(--foreground);font-variant-numeric:tabular-nums}.phone-charge-details summary{display:flex;justify-content:space-between;align-items:center;gap:8px;cursor:pointer;padding:13px 0;font-size:.82rem;list-style:none}.phone-charge-details summary::-webkit-details-marker{display:none}.phone-charge-details summary>span{font-size:.73rem;color:var(--muted-foreground)}.phone-charge-details[open] summary>span{opacity:.6}.phone-charge-list{list-style:none;margin:0;padding:0;display:grid;gap:12px}.phone-charge-list>li{min-width:0;border:1px solid var(--border);border-radius:10px;padding:13px}.phone-charge-heading{display:flex;align-items:center;flex-wrap:wrap;gap:7px}.phone-charge-heading strong{font-size:.85rem;overflow-wrap:anywhere}.phone-charge-tag{font-size:.65rem;padding:3px 6px;border-radius:5px;background:var(--muted);color:var(--muted-foreground)}.phone-charge-price{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:5px;margin:9px 0 5px;font-size:.9rem;font-weight:550}.phone-charge-price small{font-size:.72rem;color:var(--muted-foreground);font-weight:400}.phone-charge-list p{margin:5px 0;color:var(--muted-foreground);font-size:.72rem;overflow-wrap:anywhere}.phone-charge-actions{display:flex;flex-wrap:wrap;gap:16px;margin-top:9px}.phone-card-footer{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:7px}.phone-card-footer>.button{font-size:.8rem;padding:7px 10px}.phone-card-footer .text-danger{padding:8px}.phone-card-footer button:disabled{opacity:.35;cursor:not-allowed}.phone-hint{font-size:.8rem;color:var(--muted-foreground);line-height:1.75;margin:8px 0}.phone-dialog .wide{grid-column:1/-1}.phone-dialog .phone-editor-owner{font-size:.85rem;color:var(--muted-foreground);margin:0 0 12px}.phone-checkbox{display:flex;align-items:center;gap:9px;font-size:.85rem;line-height:1.6;cursor:pointer}.phone-checkbox input{width:16px;height:16px;flex-shrink:0;accent-color:#269979}.phone-dialog .dialog-actions{flex-direction:row}.phone-dialog .form-grid{margin-top:10px}.phone-dialog input[type=date]{min-width:0;max-width:100%}
-@media(min-width:1600px){.phone-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}@media(max-width:590px){.phone-card{padding:17px}.phone-section-heading p{max-width:190px;font-size:.72rem}.phone-section-heading>.button{padding:8px 10px;font-size:.8rem}.phone-section-heading h2{font-size:.92rem}.phone-card-identity p span{display:block;margin-top:2px}.phone-metrics strong{font-size:1.35rem}.phone-dialog .form-grid{grid-template-columns:1fr}.phone-dialog .form-field{grid-column:1/-1}.phone-dialog input[type=date]{width:100%}}
-
-.phone-section .phone-search{margin:0 0 16px;max-width:420px;width:100%}
+.phone-summary-card,.phone-summary-row{position:relative;min-width:0}
+.phone-summary-open{position:absolute;inset:0;z-index:2;width:100%;height:100%;border:0;border-radius:inherit;background:transparent;cursor:pointer}
+.phone-summary-open:focus-visible{outline:2px solid var(--ring);outline-offset:-3px}
+.phone-summary-icon{display:inline-flex;align-items:center;justify-content:center;width:42px;height:42px;flex-shrink:0;border-radius:12px;background:color-mix(in srgb,#269979 12%,transparent);color:#269979}
+.phone-summary-count{font-size:.73rem;color:var(--muted-foreground);white-space:nowrap;margin-left:auto}
+.phone-summary-cost{margin:23px 0 18px;display:grid;gap:5px}
+.phone-summary-cost>span,.phone-summary-cost>p{font-size:.76rem;color:var(--muted-foreground);margin:0}
+.phone-summary-cost>strong{display:flex;align-items:baseline;flex-wrap:wrap;gap:5px;font-weight:650;min-width:0}
+.phone-summary-cost .currency-value{font-size:2rem;line-height:1.25;letter-spacing:-.035em}
+.subscription-card.geek-card.phone-summary-card .phone-summary-cost .currency-amount{margin:0!important;font-size:2rem!important}
+.subscription-card.geek-card.phone-summary-card .phone-summary-cost .currency-value{margin:0!important;font-size:2rem!important;line-height:1.25!important}
+.phone-summary-cost>strong>small{font-size:.78rem;font-weight:400;color:var(--muted-foreground)}
+.phone-summary-card .phone-summary-expiry{border-top:1px solid var(--border);padding-top:13px;margin-top:auto;display:grid;gap:5px;font-size:.77rem}
+.phone-summary-expiry>span:first-child{display:flex;align-items:center;gap:6px;color:var(--muted-foreground)}
+.phone-summary-expiry>strong{font-weight:500;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.phone-summary-expiry>strong>small{font-size:.75rem;font-weight:400;color:var(--muted-foreground)}
+.phone-summary-alert{font-size:.72rem}.phone-summary-alert.soon{color:var(--warning)}.phone-summary-alert.expired{color:var(--danger)}
+.phone-summary-link{display:flex;align-items:center;justify-content:space-between;gap:7px;padding-top:16px;font-size:.78rem;color:var(--accent-foreground)}
+.phone-summary-row .phone-summary-link{padding-top:0;white-space:nowrap}
+.membership-dialog.phone-manager-dialog{max-width:720px!important;display:block}
+.phone-manager-dialog>[data-slot=dialog-header]{margin-bottom:15px}
+.phone-manager-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
+.phone-manager-count{font-size:.85rem;color:var(--muted-foreground)}
+.phone-manager-toolbar>.button{font-size:.8rem;padding:8px 11px}
+.phone-manager-dialog .phone-search{width:100%;max-width:none;margin-bottom:8px}
+.phone-account-list{min-width:0}
+.phone-account-row{min-width:0;border-bottom:1px solid var(--border)}
+.phone-account-row:last-child{border-bottom:0}
+.phone-account-details>summary{display:flex;align-items:center;gap:11px;padding:17px 0;cursor:pointer;list-style:none}
+.phone-account-details>summary::-webkit-details-marker{display:none}
+.phone-card-icon{display:inline-flex;align-items:center;justify-content:center;width:37px;height:37px;flex-shrink:0;border-radius:10px;background:color-mix(in srgb,#269979 12%,transparent);color:#269979}
+.phone-card-identity{min-width:0;flex:1;display:grid;gap:4px}
+.phone-card-identity>strong{font-size:.92rem;font-weight:600;overflow-wrap:anywhere}
+.phone-card-identity>span{font-size:.75rem;color:var(--muted-foreground);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.phone-account-cost{text-align:right;display:grid;gap:3px;flex-shrink:0;font-variant-numeric:tabular-nums}
+.phone-account-cost>strong{font-size:.98rem;font-weight:600;overflow-wrap:anywhere}
+.phone-account-cost small{font-size:.71rem;font-weight:400;color:var(--muted-foreground)}
+.phone-expand-icon{flex-shrink:0;color:var(--muted-foreground)}
+.phone-account-details[open]>summary>.phone-expand-icon{transform:rotate(180deg)}
+.phone-account-body{padding:0 0 16px}
+.phone-account-tools{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:11px}
+.phone-account-tools button:disabled{opacity:.35;cursor:not-allowed}
+.phone-balance{display:flex;align-items:baseline;gap:7px;flex-wrap:wrap;font-size:.78rem;color:var(--muted-foreground);margin:0 0 9px}
+.phone-balance>strong{font-size:.9rem;font-weight:550;color:var(--foreground);font-variant-numeric:tabular-nums}
+.phone-balance>span{margin-left:auto;font-size:.72rem}
+.phone-next{display:flex;flex-wrap:wrap;justify-content:space-between;gap:7px;font-size:.77rem;color:var(--muted-foreground);padding-bottom:12px;margin:0}
+.phone-next b{font-weight:500;color:var(--foreground);font-variant-numeric:tabular-nums}
+.phone-charge-list{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.phone-charge-list>li{min-width:0;border:1px solid var(--border);border-radius:10px;padding:12px}
+.phone-charge-heading{display:flex;align-items:center;flex-wrap:wrap;gap:7px}
+.phone-charge-heading strong{font-size:.85rem;overflow-wrap:anywhere}
+.phone-charge-tag{font-size:.7rem;padding:3px 6px;border-radius:5px;background:var(--muted);color:var(--muted-foreground)}
+.phone-charge-price{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:5px;margin:9px 0 5px;font-size:.9rem;font-weight:550}
+.phone-charge-price small{font-size:.72rem;color:var(--muted-foreground);font-weight:400}
+.phone-charge-list p{margin:5px 0;color:var(--muted-foreground);font-size:.72rem;overflow-wrap:anywhere}
+.phone-charge-actions{display:flex;flex-wrap:wrap;gap:16px;margin-top:9px}
+.phone-card-footer{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:12px}
+.phone-card-footer>.button{font-size:.8rem;padding:7px 10px}
+.phone-hint{font-size:.8rem;color:var(--muted-foreground);line-height:1.75;margin:12px 0}
+.phone-dialog .wide{grid-column:1/-1}
+.phone-dialog .phone-editor-owner{font-size:.85rem;color:var(--muted-foreground);margin:15px 0 12px}
+.phone-checkbox{display:flex;align-items:center;gap:9px;font-size:.85rem;line-height:1.6;cursor:pointer}
+.phone-checkbox input{width:16px;height:16px;flex-shrink:0;accent-color:#269979}
+.phone-dialog .dialog-actions{flex-direction:row}
+.phone-dialog .form-grid{margin-top:10px}
+.phone-dialog input[type=date]{min-width:0;max-width:100%}
+.phone-back{margin-bottom:18px}
+.membership-dialog.phone-editor-active{max-width:560px!important}
+@media(max-width:590px){
+  .phone-summary-row .phone-summary-link{display:none}
+  .phone-summary-count{font-size:.7rem}
+  .phone-manager-dialog .phone-account-details>summary{gap:8px}
+  .phone-card-icon{width:31px;height:35px}
+  .phone-account-cost>strong{font-size:.9rem}
+  .phone-account-cost>strong>small{display:block}
+  .phone-account-cost>small{display:none}
+  .phone-balance>span{margin-left:0;width:100%}
+  .phone-dialog .form-grid{grid-template-columns:1fr}
+  .phone-dialog .form-field{grid-column:1/-1}
+  .phone-dialog input[type=date]{width:100%}
+}
+.phone-summary-metrics{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:12px;margin:21px 0 17px}
+.phone-summary-metrics .phone-summary-cost{margin:0;min-width:0}
+.phone-summary-remaining{display:grid;align-content:start;gap:5px;min-width:0;border-left:1px solid var(--border);padding-left:14px}
+.phone-summary-remaining>span,.phone-summary-remaining>p{font-size:.76rem;color:var(--muted-foreground);margin:0}
+.phone-summary-remaining>strong{font:650 2rem/1.25 var(--font-mono,monospace);font-variant-numeric:tabular-nums}
+.phone-summary-remaining>strong>small{font:400 .76rem var(--font-sans,system-ui);color:var(--muted-foreground);margin-left:5px}
+.phone-summary-progress{margin-bottom:16px}
+.phone-progress-caption{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:.75rem;color:var(--muted-foreground);margin-bottom:7px;min-width:0}
+.phone-progress-caption>span{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;min-width:0}
+.phone-progress-caption>b{font-weight:400;font-variant-numeric:tabular-nums}
+.phone-package-progress{height:4px!important;background:var(--progress-track)!important}
+.phone-package-progress>[data-slot=progress-indicator]{background:var(--segment-color)!important}
+.phone-summary-row-progress{grid-column:1/-1;width:100%;min-width:0}
+.phone-display-setting{margin:0 0 16px}
+.phone-display-setting small{font-size:.75rem;color:var(--muted-foreground);line-height:1.65}
+@media(max-width:590px){.phone-summary-metrics{gap:9px}.phone-summary-remaining{padding-left:10px}.phone-summary-remaining>strong{font-size:1.8rem}.subscription-card.geek-card.phone-summary-card .phone-summary-cost .currency-value{font-size:1.8rem!important}}

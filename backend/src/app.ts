@@ -108,7 +108,7 @@ export function createApp(db: DatabaseSync, config: Config, notifications?: Noti
     const calendar = { today: dateInTimeZone(clock(), config.timeZone), timeZone: config.timeZone };
     const user = auth.session(tokenFromCookie(req.get("Cookie")));
     if (user) {
-      res.json({ items: subscriptions.list(user.id).items, phoneAccounts: phones.list(user.id), canManage: true, publicDashboard: config.publicDashboard, ...calendar });
+      res.json({ items: subscriptions.list(user.id).items, phoneAccounts: phones.list(user.id), phoneDisplay: phones.preference(user.id), canManage: true, publicDashboard: config.publicDashboard, ...calendar });
       return;
     }
     if (!config.publicDashboard) throw new ApiError(401,"请先登录自己的管理员账号。","AUTH_REQUIRED");
@@ -170,6 +170,7 @@ export function createApp(db: DatabaseSync, config: Config, notifications?: Noti
   app.get("/api/exchange-rate", async (req,res) => res.json(await rates.lookup(req.query)));
   app.get("/api/subscriptions", (_req,res) => res.json(subscriptions.list(res.locals.user.id)));
   app.get("/api/phones", (_req,res) => res.json({ items: phones.list(res.locals.user.id) }));
+  app.post("/api/phones/display", (req,res) => res.json(phones.setPreference(res.locals.user.id,req.body)));
   app.post("/api/phones", (req,res) => res.status(req.body?.action === "create" ? 201 : 200).json(phones.execute(res.locals.user.id,req.body)));
   app.get("/api/payments", (_req,res) => res.json({logs:payments.all(res.locals.user.id)}));
   app.post("/api/payments/preview", async (req,res) => res.json(await payments.preview(res.locals.user.id,req.body)));

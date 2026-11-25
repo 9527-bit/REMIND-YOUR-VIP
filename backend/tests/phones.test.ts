@@ -17,7 +17,7 @@ import { bootstrapAdmin } from "../src/auth.ts";
 import { EmailNotificationService } from "../src/notifications.ts";
 import { BarkNotificationService } from "../src/bark.ts";
 import { monthlyCostCny, renewDate, type Subscription, type DashboardSnapshot } from "../../shared/subscriptions.ts";
-import { phoneMonthlyCost, type PhoneAccount, type PhoneChargeType } from "../../shared/phones.ts";
+import { phoneMonthlyCost, phoneSummary, type PhoneAccount, type PhoneChargeType } from "../../shared/phones.ts";
 import { paymentReport } from "../../shared/payment-reports.ts";
 
 const at = (date: string) => new Date(date + "T02:00:00Z");
@@ -167,12 +167,18 @@ test("phone APIs require login and the public dashboard never reveals phone iden
   t.after(async()=>{await new Promise<void>(resolve=>server.close(()=>resolve()));db.close();});
   config.publicOrigin=`http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   const publicBody=await (await fetch(config.publicOrigin+"/api/dashboard")).json() as DashboardSnapshot;
-  assert.deepEqual(publicBody.items,[]);assert.equal(publicBody.phoneAccounts,undefined);
+  assert.deepEqual(publicBody.items,[]);assert.equal(publicBody.phoneAccounts,undefined);assert.equal(publicBody.phoneDisplay,undefined);
   assert.equal((await fetch(config.publicOrigin+"/api/phones")).status,401);
   const login=await fetch(config.publicOrigin+"/api/auth/login",{method:"POST",headers:{"Content-Type":"application/json","X-Requested-With":"membership-dashboard",Origin:config.publicOrigin},body:JSON.stringify({username:config.adminUsername,password:config.adminPassword})});
   const cookie=login.headers.get("set-cookie")!.split(";")[0];
   const privateBody=await (await fetch(config.publicOrigin+"/api/dashboard",{headers:{Cookie:cookie}})).json() as DashboardSnapshot;
   assert.equal(privateBody.phoneAccounts![0].number,owner.number);assert.equal(privateBody.items[0].phoneAccountId,owner.id);
+  const preferenceHeaders={"Content-Type":"application/json","X-Requested-With":"membership-dashboard",Origin:config.publicOrigin};
+  const preferenceBody=JSON.stringify({selectedChargeId:privateBody.items[0].id,version:0});
+  assert.equal((await fetch(config.publicOrigin+"/api/phones/display",{method:"POST",headers:preferenceHeaders,body:preferenceBody})).status,401);
+  assert.equal((await fetch(config.publicOrigin+"/api/phones/display",{method:"POST",headers:{...preferenceHeaders,Cookie:cookie},body:preferenceBody})).status,200);
+  assert.equal((await fetch(config.publicOrigin+"/api/phones/display",{method:"POST",headers:{...preferenceHeaders,Cookie:cookie},body:preferenceBody})).status,409);
+  assert.equal((await fetch(config.publicOrigin+"/api/phones/display",{method:"POST",headers:{"Content-Type":"application/json",Cookie:cookie},body:preferenceBody})).status,403);
 });
 
 test("v10 migration preserves subscriptions, renewal audit children and credentials, and re-enables foreign keys", t => {
@@ -192,7 +198,7 @@ test("v10 migration preserves subscriptions, renewal audit children and credenti
     assert.deepEqual({...db.prepare("SELECT * FROM automatic_renewal_events").get()!},audit);
     assert.equal(db.prepare("SELECT password_hash FROM users").get()!.password_hash,"fixture-hash");
     assert.equal(db.prepare("PRAGMA foreign_keys").get()!.foreign_keys,1);assert.deepEqual(db.prepare("PRAGMA foreign_key_check").all(),[]);
-    db.close();db=openDatabase(path);assert.equal(db.prepare("PRAGMA user_version").get()!.user_version,12);
+    db.close();db=openDatabase(path);assert.equal(db.prepare("PRAGMA user_version").get()!.user_version,13);
   } finally {db.close();}
 });
 
@@ -224,5 +230,96 @@ test("failed phone-table rebuild rolls back the entire migration without discard
     assert.equal(db.prepare("PRAGMA user_version").get()!.user_version,10);
     assert.equal(db.prepare("SELECT count(*) n FROM automatic_renewal_events").get()!.n,1);
     assert.equal(db.prepare("SELECT count(*) n FROM sqlite_master WHERE name IN ('phone_accounts','subscriptions_v11')").get()!.n,0);
+  } finally {db.close();}
+});
+
+test("homepage phone summary combines current owned costs without counting future, expired or unrelated records", () => {
+  const owner=phone(),backup=phone({number:"13900001234",label:"Backup"});
+  const items=[fee(owner,"monthly"),fee(owner,"yearly"),fee(owner,"once"),fee(backup,"monthly",{amount:58}),
+    fee(owner,"yearly",{startDate:"2027-01-01",endDate:"2028-01-01"}),
+    fee(owner,"monthly",{startDate:"2026-10-01",endDate:"2026-11-01"}),
+    fee(phone(),"monthly",{amount:999}),fee(owner,"monthly",{expenseType:"subscription",amount:999})];
+  const summary=phoneSummary([owner,backup],items,"2026-11-26");
+  assert.equal(summary.count,2);assert.equal(summary.monthly,86);
+  assert.equal(summary.nextAnnual!.date,"2027-11-26");assert.equal(summary.nextAnnual!.label,owner.label);
+  assert.equal(summary.overdue,0);assert.equal(summary.dueSoon,0);
+  assert.ok(summary.searchText.includes(backup.number));assert.ok(summary.searchText.includes("yearly"));
+  assert.equal(items.length,8,"building a summary does not add a subscription or payment");
+});
+
+test("homepage expiry hint uses annual packages while monthly due dates remain separate and reminder preferences apply", () => {
+  const owner=phone();
+  const items=[fee(owner,"monthly",{endDate:"2026-11-27"}),
+    fee(owner,"yearly",{startDate:"2025-11-30",endDate:"2026-11-30"}),
+    fee(owner,"yearly",{startDate:"2025-11-20",endDate:"2026-11-20"}),
+    fee(owner,"yearly",{startDate:"2025-11-25",endDate:"2026-11-25",reminderEnabled:false})];
+  const summary=phoneSummary([owner],items,"2026-11-26");
+  assert.equal(summary.nextAnnual!.date,"2026-11-30");assert.equal(summary.nextBillDate,"2026-11-27");
+  assert.equal(summary.dueSoon,1);assert.equal(summary.overdue,1);
+  assert.equal(phoneSummary([owner],[],"2026-11-26").nextAnnual,null);
+  assert.equal(phoneSummary([],items,"2026-11-26").monthly,0);
+});
+
+test("selected phone package controls days and progress without changing aggregate cost; automatic mode prefers an active annual package", () => {
+  const owner=phone(),backup=phone({number:"13900001234",label:"Backup"});
+  const monthly=fee(owner,"monthly",{startDate:"2026-11-01",endDate:"2026-12-01"});
+  const annual=fee(backup,"yearly",{startDate:"2026-11-01",endDate:"2027-11-01"});
+  const items=[monthly,annual,fee(owner,"once")];
+  const auto=phoneSummary([owner,backup],items,"2026-11-26");
+  assert.equal(auto.display!.id,annual.id);assert.equal(auto.display!.days,340);assert.equal(auto.display!.percentage,93);assert.equal(auto.display!.manual,false);
+  const selected=phoneSummary([owner,backup],items,"2026-11-26",monthly.id);
+  assert.equal(selected.monthly,auto.monthly);assert.equal(selected.display!.days,5);assert.equal(selected.display!.percentage,17);assert.equal(selected.display!.manual,true);
+  assert.equal(phoneSummary([owner,backup],items,"2026-12-02",monthly.id).display!.percentage,0);
+  assert.equal(phoneSummary([owner,backup],items,"2026-12-02",monthly.id).display!.days,-1);
+  assert.equal(phoneSummary([owner,backup],items,"2026-10-25",annual.id).display!.percentage,100);
+  assert.equal(phoneSummary([owner,backup],items,"2026-10-25",annual.id).display!.startsIn,7);
+  assert.equal(phoneSummary([owner,backup],items,"2026-11-26",randomUUID()).display!.id,annual.id);
+  assert.equal(phoneSummary([owner],[monthly],"2026-11-26").display!.id,monthly.id);
+  assert.equal(phoneSummary([owner],[] ,"2026-11-26").display,null);
+});
+
+test("phone display preferences are versioned, owner scoped, persistent, and reject one-off or unrelated items", t => {
+  const {db,phones,service}=setup();t.after(()=>db.close());
+  const owner=phones.execute(1,{action:"create",item:phone()}).item!;
+  const monthly=service.execute(1,{action:"create",item:fee(owner,"monthly")}).item!;
+  const once=service.execute(1,{action:"create",item:fee(owner,"once")}).item!;
+  assert.deepEqual(phones.preference(1),{selectedChargeId:null,version:0});
+  assert.throws(()=>phones.setPreference(2,{selectedChargeId:monthly.id,version:0}),{status:404});
+  assert.throws(()=>phones.setPreference(1,{selectedChargeId:once.id,version:0}),{status:404});
+  const saved=phones.setPreference(1,{selectedChargeId:monthly.id,version:0});assert.equal(saved.version,1);
+  assert.equal(new PhoneAccounts(db).preference(1).selectedChargeId,monthly.id);
+  assert.throws(()=>phones.setPreference(1,{selectedChargeId:null,version:0}),{code:"VERSION_CONFLICT"});
+  service.execute(1,{action:"delete",id:monthly.id,version:monthly.version});
+  assert.deepEqual(phones.preference(1),{selectedChargeId:null,version:2});
+});
+
+test("display selection participates in backup revisions, restores with v5, and older backups fall back to automatic", t => {
+  const {db,phones,service,backups}=setup();t.after(()=>db.close());
+  const owner=phones.execute(1,{action:"create",item:phone()}).item!;
+  const annual=service.execute(1,{action:"create",item:fee(owner,"yearly")}).item!;
+  const previous=backups.export(1),stale=backups.preview(1,previous);
+  phones.setPreference(1,{selectedChargeId:annual.id,version:0});
+  assert.throws(()=>backups.import(1,{backup:previous,mode:"merge",expectedRevision:stale.revision}),{code:"VERSION_CONFLICT"});
+  const backup=backups.export(1);assert.equal(backup.phoneDisplayChargeId,annual.id);
+  backups.import(2,{backup,mode:"merge",expectedRevision:backups.preview(2,backup).revision});
+  assert.equal(phones.preference(2).selectedChargeId,annual.id);
+  const old=structuredClone(backup);delete old.phoneDisplayChargeId;
+  backups.import(2,{backup:old,mode:"replace",confirmReplace:true,expectedRevision:backups.preview(2,old).revision});
+  assert.equal(phones.preference(2).selectedChargeId,null);
+  assert.throws(()=>backups.preview(1,{...backup,phoneDisplayChargeId:randomUUID()}));
+});
+
+test("v12 display-preference migration preserves prior preferences and account records", t => {
+  const folder=mkdtempSync(join(tmpdir(),"vip-phone-display-")), path=join(folder,"fixture.sqlite");
+  t.after(()=>rmSync(folder,{recursive:true,force:true}));
+  let db=new DatabaseSync(path);
+  for(const name of readdirSync(new URL("../migrations/",import.meta.url)).filter(name=>name.endsWith(".sql")).sort().slice(0,12))db.exec(readFileSync(new URL("../migrations/"+name,import.meta.url),"utf8"));
+  db.exec("PRAGMA user_version=12; INSERT INTO users VALUES(1,'owner','preserved-fixture',0); INSERT INTO subscription_preferences(user_id,initialized) VALUES(1,1)");
+  db.close();db=openDatabase(path);
+  try {
+    assert.equal(db.prepare("PRAGMA user_version").get()!.user_version,13);
+    assert.equal(db.prepare("SELECT initialized FROM subscription_preferences").get()!.initialized,1);
+    assert.deepEqual(new PhoneAccounts(db).preference(1),{selectedChargeId:null,version:0});
+    assert.equal(db.prepare("SELECT password_hash FROM users").get()!.password_hash,"preserved-fixture");
   } finally {db.close();}
 });

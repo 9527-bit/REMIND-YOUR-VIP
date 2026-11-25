@@ -190,7 +190,7 @@ test("v9 migration preserves existing data and defaults without generating bills
     assert.equal(after.expense_type,"subscription");assert.equal(after.reminder_enabled,1);assert.equal(after.auto_record,0);
     assert.equal(db.prepare("SELECT password_hash FROM users").get()!.password_hash,"preserved-hash");
     assert.equal(db.prepare("SELECT count(*) AS n FROM subscription_renewal_logs").get()!.n,0);
-    assert.equal(db.prepare("PRAGMA user_version").get()!.user_version,12);
+    assert.equal(db.prepare("PRAGMA user_version").get()!.user_version,13);
   } finally {db.close();}
 });
 
@@ -296,7 +296,7 @@ test("v11 cycle migration keeps phone relationships, existing bill snapshots, au
   db.close();db=openDatabase(path);
   try {
     tables.forEach((table,index)=>assert.deepEqual(db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all(),snapshots[index],table));
-    assert.equal(db.prepare("PRAGMA user_version").get()!.user_version,12);assert.equal(db.prepare("PRAGMA foreign_keys").get()!.foreign_keys,1);
+    assert.equal(db.prepare("PRAGMA user_version").get()!.user_version,13);assert.equal(db.prepare("PRAGMA foreign_keys").get()!.foreign_keys,1);
     assert.deepEqual(db.prepare("PRAGMA foreign_key_check").all(),[]);
     service=new SubscriptionService(db,"Asia/Shanghai",()=>at("2026-02-01"));
     assert.equal(service.execute(1,{action:"create",item:record({cycle:"yearly",endDate:"2027-01-31"})}).item!.cycle,"yearly");
