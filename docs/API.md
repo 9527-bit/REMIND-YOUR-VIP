@@ -7,22 +7,29 @@
 | 方法 | 路径 | 用途 |
 | --- | --- | --- |
 | GET | /api/health | 健康状态，不返回配置或私人数据 |
-| GET | /api/dashboard | 首页快照：items、canManage、publicDashboard；公开模式支持匿名只读 |
+| GET | /api/dashboard | 首页快照：items、canManage、publicDashboard、today、timeZone；公开模式支持匿名只读 |
 | POST | /api/auth/login | JSON：username、password |
 | GET | /api/auth/session | 当前用户 |
 | POST | /api/auth/logout | JSON：{}，销毁会话 |
 | GET | /api/notifications/status | 主管理员查看启用状态、脱敏邮箱、时区/时间、测试冷却和最近 5 条结果；不返回授权码 |
+| POST | /api/notifications/bark/test | 空 JSON `{}`；仅向服务器配置的设备发送；60 秒冷却，收到有效 `code:200` 才算已提交，无效确认记为待核实 |
 | POST | /api/notifications/test | 空 JSON `{}`；只向配置地址发送，返回 `accepted:true` 表示 SMTP 接受；限流每分钟一次（429 + Retry-After），未配置 503，失败或结果不明 502 |
 | GET | /api/subscriptions | 返回 items、initialized |
 | POST | /api/subscriptions | 以下 action 操作 |
 | GET | /api/subscriptions/history | 私人流水；可选 subscriptionId、offset（默认 0）、limit（默认 50，最大 100）；返回 logs、total |
 | POST | /api/subscriptions/history/delete | JSON：{ id }；仅删除当前用户已撤销（undoneAt 非空）的流水，返回 { id }；未撤销返回 409 / RENEWAL_NOT_UNDONE，不存在或不属于当前用户返回 404 |
 | GET | /api/exchange-rate | 需登录；currency 与 date 查询购买日到人民币历史汇率，不写入订阅 |
+| GET | /api/payments | 当前管理员全部账期/付款流水，返回 logs |
+| POST | /api/payments/preview | { subscriptionId, entries }，预览实际付款日汇率和重复账期；不写入 |
+| POST | /api/payments/backfill | 同预览输入，逐期补录已支付记录；事务写入，重叠账期跳过 |
+| POST | /api/payments/confirm | { id, entry }，确认单期账期流水已支付，不改变服务账期 |
+| POST | /api/payments/void | { id }，作废已支付记录并保留原始信息 |
+| POST | /api/payments/date | { id, paidOn, expectedPaidOn }，更正付款日期；保留原金额和汇率快照并记录更正历史 |
 | GET | /api/backup | 当前用户全量业务 JSON，带下载响应头，不含密码或会话 |
 | POST | /api/backup/preview | { backup }，完整校验并返回计数及 revision，不写入数据 |
 | POST | /api/backup/import | { backup, mode, expectedRevision, confirmReplace? }，事务导入 |
 
-`/api/dashboard` 登录后返回完整当前用户记录；未登录且 `PUBLIC_DASHBOARD=true` 时仅返回单管理员的展示字段，`note` 固定为空字符串、`version` 为 0、`canManage=false`，不返回其他用户记录。未开启公开展示时返回 401。所有响应不缓存。`/api/subscriptions` 的读写、`/api/auth/session` 始终需要真实登录态；公开看板不授予写入权限。
+`/api/dashboard` 登录后返回完整当前用户记录；未登录且 `PUBLIC_DASHBOARD=true` 时仅返回单管理员的展示字段，`note` 固定为空字符串、`version` 为 0、`canManage=false`，不返回其他用户记录。未开启公开展示时返回 401。`today` 和 `timeZone` 使用服务端 APP_TIMEZONE，前端日期输入、统计和剩余天数跟随该业务时区。所有响应不缓存。`/api/subscriptions` 的读写、`/api/auth/session` 始终需要真实登录态；公开看板不授予写入权限。
 
 订阅操作：
 
@@ -39,7 +46,7 @@
 
 兼容旧 v4 请求/备份的 billingAmount、billingCurrency、exchangeRate、exchangeRateDate：以 billingAmount 恢复原币数值，不再次换算旧 amount。混用两套币种字段会拒绝。数据库 original_amount_cents 保存原币整数分，amount_cents 保留旧人民币折算整数分；业务读取使用原币与快照。旧版客户端应随服务端一同更新，不应将新版 amount 当作人民币。
 
-购买日期/汇率与本期账期分离，renew、undoRenew 与自动续期均不改写这些字段。记录续期时把当时的快照复制到流水，以后修改订阅不会改写旧流水。
+普通 create/update 保存调用方提交的有效汇率快照，不查询或覆盖已有汇率；只改备注、套餐等字段不重定价。ratePending=true 表示汇率待补全，人民币预算暂不计入。独立购买日期可与服务账期不同，后台按 purchaseDate 查询待补汇率。renew 与自动续期先把旧快照复制到流水，再将当前购买日期设为新账期开始日，外币标为待补全；undoRenew 恢复原快照与待补状态。流水中的旧快照不随以后编辑变化。
 
 category：影音娱乐、购物电商、AI 工具、云存储、办公效率、设计与创作、云服务与网络、游戏会员、学习教育、生活服务、其他服务。cycle：monthly、quarterly、yearly、custom。
 
@@ -53,13 +60,19 @@ startDate/endDate 是本期账期边界，不是最早开通时间。autoRenew=t
 
 ## 历史汇率查询
 
-例如 `GET /api/exchange-rate?currency=USD&date=2024-05-03` 返回 currency、requestedDate、rateDate、rate、source。只查询传入的历史日期；遇休市可能返回此前最近报价（最多相差 14 天），拒绝未来报价、无效数值或币对不匹配。未来请求日期返回 400。CNY 返回固定 1，不访问外部服务。
+例如 `GET /api/exchange-rate?currency=USD&date=2024-05-03` 返回 currency、requestedDate、rateDate、rate、source。只查询传入的历史日期；遇休市可能返回此前最近报价（最多相差 14 天），拒绝未来报价、无效数值或币对不匹配。未来请求日期返回 400（按 APP_TIMEZONE 判断今天）。CNY 返回固定 1，不访问外部服务。
 
 外币请求只向 Frankfurter 发送币种与日期，不发送会员名称、金额、备注或账号。超时为 8 秒，同一键合并并发请求，最多 4 个不同查询在途、256 个缓存条目、缓存 24 小时。失败返回 502 / FX_UNAVAILABLE，不改用实时汇率，不缓存失败；忙碌返回 429 / FX_BUSY 和 Retry-After。获取成功也不写入数据，需显式保存订阅。参考报价不是银行卡实际结算金额。
 
+## 付款与实际消费
+
+entries 每项为 amount、currency、paidOn、startDate、endDate、note；1–36 项，金额最多两位小数。paidOn 必须不晚于应用时区的今天；服务账期可在未来，以支持提前付款。新记录按 paidOn 查询汇率，返回 rate、rateDate 和 rateBasisDate；rateBasisDate 固定为初次确认付款日期，后续更正 paidOn 不重定价。没有 rateBasisDate 的旧流水保留原账期开始日汇率。备份保留这些快照，接受报价日期不晚于相应基准日期的旧/新格式。
+
+支出分析的消费金额、趋势和分类只统计未作废且 paidOn 已发生的已确认付款。尚未确认的账期变更及订阅登记价格不构成消费。月均支出与到期预算分别为估算；未知汇率显示待补全，不按 1:1 计入。首页 30 天预算按到期日与登记价格计算，不核实服务商扣款；月度待付清单还排除已确认覆盖该账期的付款。
+
 ## JSON 格式与并发恢复
 
-格式：application 为 vip-manager、formatVersion 导出为 2（导入接受 1 和 2）、顶层 currency 为 CNY（报表本位币），另有 exportedAt、subscriptions、renewalLogs。每项保存自身原币金额及完整汇率快照；订阅增加 renewalAnchorDate；流水字段见 [shared/renewals.ts](../shared/renewals.ts)。历史未知金额为 null，不能伪造为 0；删除订阅不删除新流水。旧人民币备份自动补齐 CNY/1，旧 v4 币种字段按上述规则升级。私人接口始终鉴权，公开看板不返回流水/锚点。
+格式：application 为 vip-manager、formatVersion 导出为 3（导入接受 1、2 和 3）、顶层 currency 为 CNY（报表本位币），另有 exportedAt、subscriptions、renewalLogs。每项保存自身原币金额及完整汇率快照；订阅增加 renewalAnchorDate；流水字段见 [shared/renewals.ts](../shared/renewals.ts)。历史未知金额为 null，不能伪造为 0；删除订阅不删除新流水。旧人民币备份自动补齐 CNY/1，旧 v4 币种字段按上述规则升级。私人接口始终鉴权，公开看板不返回流水/锚点。
 
 preview 返回 revision、subscriptions、logs、existing、newSubscriptions、skippedSubscriptions、newLogs。import 必须提交原 revision 作为 expectedRevision，预览后任何业务变化会返回 409。mode=merge 只插入新 ID；mode=replace 还必须 confirmReplace=true，替换当前用户业务数据，不改变账号。成功返回 importedSubscriptions、importedLogs、skippedSubscriptions。导入后的版本递增，旧表单失效，导入流水不可快捷撤销。
 

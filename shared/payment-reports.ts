@@ -3,7 +3,7 @@ import { paymentCny, paymentState } from "./payments.ts";
 import { monthlyCostCny, type Subscription } from "./subscriptions.ts";
 import { allocatedEntry, entryAmount, reportEntries, type ReportEntry } from "./report-entries.ts";
 
-export type ReportBasis = "cash" | "accrual";
+export type ReportBasis = "cash" | "accrual" | "confirmed";
 /** Put a confirmed payment in the month it was actually paid. */
 export function allocatedPayment(log: RenewalLog, period: string): number {
   const p=log.payment!;
@@ -14,7 +14,7 @@ export function allocatedPayment(log: RenewalLog, period: string): number {
 export function paymentReport(logs: RenewalLog[], items: Subscription[], today: string, period = today.slice(0,7), basis: ReportBasis = "cash") {
   const paid = logs.filter(log => paymentState(log)==="paid" && log.payment!.paidOn<=today);
   const sum = (rows: RenewalLog[]) => rows.reduce((n,log)=>n+paymentCny(log.payment!),0);
-  const sources=reportEntries(logs,items,today), entries=sources[basis];
+  const sources=reportEntries(logs,items,today), entries=basis === "confirmed" ? sources.confirmed : sources[basis];
   // Both report views use one billing bucket: a known payment belongs to its
   // paid month, while an estimate uses the saved period start as its record
   // month. The cash view still filters out inferred entries whose period is
@@ -59,6 +59,6 @@ export function paymentReport(logs: RenewalLog[], items: Subscription[], today: 
     recordedMonthTotal:bucket(today.slice(0,7)).amount,
     recordedYearTotal:bucket(today.slice(0,4)).amount,recordedYearCount:recordedYear.length,recordedYearSubscriptionCount:recordedYear.filter(entry=>entry.source==="subscription").length,
     months,years,categories:group("category"),ranking:group("subscription"),
-    upcoming,forecast:upcoming.reduce((n,p)=>n+(p.cny??0),0),pending:logs.filter(log=>paymentState(log)==="pending").length,
+    upcoming,forecast:upcoming.reduce((n,p)=>n+(p.cny??0),0),forecastPending:upcoming.filter(p=>p.cny===null).length,pending:logs.filter(log=>paymentState(log)==="pending").length,
     monthly:items.filter(i=>i.endDate>=today).reduce((n,i)=>n+monthlyCostCny(i),0),ratePending:items.filter(i=>i.ratePending).length};
 }

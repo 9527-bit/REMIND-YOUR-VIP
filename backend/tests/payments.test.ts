@@ -18,7 +18,7 @@ function setup() {
   const rates=new ExchangeRates(async url=>{const date=new URL(String(url)).searchParams.get("date")!;dates.push(date);return Response.json({date,base:"AUD",quote:"CNY",rate:date.startsWith("2024-05")?4:5});});
   const service=new SubscriptionService(db,"Asia/Shanghai",()=>new Date("2024-10-01T00:00:00Z"),rates);
   const item=service.execute(1,{action:"create",item:{id:randomUUID(),name:"Open Ai",plan:"Business",category:"AI 工具",amount:25,currency:"AUD",purchaseDate:"2024-09-20",fxRateToCny:5,fxRateDate:"2024-09-20",fxRateSource:"frankfurter",cycle:"monthly",customDays:30,startDate:"2024-09-20",endDate:"2024-10-20",reminderDays:7,autoRenew:false,note:"private",color:"#269979"}}).item!;
-  return {db,service,item,dates,payments:new PaymentService(db,rates),backups:new BackupService(db)};
+  return {db,service,item,dates,rates,payments:new PaymentService(db,rates),backups:new BackupService(db)};
 }
 const entry=(startDate="2024-05-20",endDate="2024-06-20"):PaymentInput=>({amount:25,currency:"AUD",paidOn:startDate,startDate,endDate,note:"historical receipt"});
 
@@ -43,7 +43,7 @@ test("confirmation enriches one original audit, is single-use and cannot be undo
   await assert.rejects(payments.confirm(2,{id:renewal.renewal!.id,entry:p}),{status:404});
   const before=service.list(1);
   await payments.confirm(1,{id:renewal.renewal!.id,entry:p});
-  assert.equal(payments.all(1).length,1);assert.equal(payments.all(1)[0].payment!.rateDate,p.startDate);
+  assert.equal(payments.all(1).length,1);assert.equal(payments.all(1)[0].payment!.rateDate,p.paidOn);
   assert.deepEqual(service.list(1),before);
   await assert.rejects(payments.confirm(1,{id:renewal.renewal!.id,entry:p}),{status:409});
   assert.throws(()=>service.execute(1,{action:"undoRenew",id:item.id,version:1,logId:renewal.renewal!.id}),{status:409});
@@ -78,15 +78,17 @@ test("reports group by payment month, exclude voids and never count a prepaid fu
   const {db,item,payments}=setup();t.after(()=>db.close());
   await payments.add(1,{subscriptionId:item.id,entries:[{...entry(),paidOn:"2024-06-01"},{...entry("2024-10-20","2024-11-20"),paidOn:"2024-10-01"}]});
   const all=payments.all(1), report=paymentReport(all,[item],"2024-10-10","2024-06");
-  assert.equal(report.total,100);assert.equal(report.yearTotal,225);assert.equal(report.monthTotal,125);assert.equal(report.upcoming.length,0);
+  assert.equal(report.total,125);assert.equal(report.yearTotal,250);assert.equal(report.monthTotal,125);assert.equal(report.upcoming.length,0);
   assert.equal(report.months.length,12);assert.equal(report.months.find(m=>m.key==="2024-05")!.count,0);
   assert.equal(report.categories[0].amount,report.ranking[0].amount);
 });
 
 test("new period rates retry independently, omit pending budget and restore prior snapshot on undo",async t=>{
-  const {db,item,service,dates}=setup();t.after(()=>db.close());
+  const {db,item,service,dates,rates}=setup();t.after(()=>db.close());
   const renewed=service.execute(1,{action:"renew",id:item.id,version:0});assert.equal(renewed.item!.ratePending,true);assert.equal(monthlyCostCny(renewed.item!),0);
-  await service.refreshPendingRates();const current=service.list(1).items[0];assert.equal(current.ratePending,false);assert.equal(current.fxRateDate,current.startDate);assert.deepEqual(dates,[current.startDate]);
+  await service.refreshPendingRates();assert.deepEqual(dates,[],"a future purchase date stays pending");
+  await new SubscriptionService(db,"Asia/Shanghai",()=>new Date(renewed.item!.startDate+"T00:00:00Z"),rates).refreshPendingRates();
+  const current=service.list(1).items[0];assert.equal(current.ratePending,false);assert.equal(current.fxRateDate,current.startDate);assert.deepEqual(dates,[current.startDate]);
   service.execute(1,{action:"undoRenew",id:item.id,version:1,logId:renewed.renewal!.id});
   const restored=service.list(1).items[0];assert.equal(restored.purchaseDate,item.purchaseDate);assert.equal(restored.fxRateDate,item.fxRateDate);assert.equal(restored.ratePending,false);
 });
@@ -127,7 +129,7 @@ test("payment date corrections preserve audit, amounts, coverage and backups whi
   assert.deepEqual({...corrected.payment,paidOn:log.payment!.paidOn,dateCorrections:undefined},{...log.payment,dateCorrections:undefined});
   assert.equal(corrected.payment!.dateCorrections![0].from,"2024-10-10");
   assert.equal(paymentReport([corrected],[],"2024-10-10","2024-10").total,0);
-  assert.equal(paymentReport([corrected],[],"2024-10-10","2024-05").total,100);
+  assert.equal(paymentReport([corrected],[],"2024-10-10","2024-05").total,125);
   assert.deepEqual(service.list(1),before);
   assert.throws(()=>payments.correctDate(1,{id:log.id,paidOn:"2024-05-21",expectedPaidOn:"2024-10-10"}),{status:409});
   const backup=backups.export(1);backups.import(2,{backup,mode:"merge",expectedRevision:backups.preview(2,backup).revision});

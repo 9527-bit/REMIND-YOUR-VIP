@@ -151,7 +151,7 @@ test("HttpBarkSender 正常发送、处理错误码和超时中断", async t => 
     lastReq.body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
     if (delayMs > 0) await new Promise(r => setTimeout(r, delayMs));
     res.writeHead(respondWith.status, { "Content-Type": "application/json" });
-    res.end(JSON.stringify(respondWith.body));
+    res.end(typeof respondWith.body === "string" ? respondWith.body : JSON.stringify(respondWith.body));
   });
 
   await new Promise<void>((resolve, reject) => { server.listen(0, "127.0.0.1", () => resolve()); server.on("error", reject); });
@@ -170,5 +170,19 @@ test("HttpBarkSender 正常发送、处理错误码和超时中断", async t => 
 
   respondWith = { status: 502, body: { error: "bad gateway" } };
   await assert.rejects(sender.send({ title: "测试", body: "内容" }), /HTTP 502/);
+
+  for (const body of ["maintenance page", null, {}, [], { code: "200" }]) {
+    respondWith = { status: 200, body };
+    await assert.rejects(sender.send({ title: "测试", body: "内容" }), error => {
+      const safe = safeBarkError(error);
+      assert.equal(safe.uncertain, true); assert.equal(safe.retryable, false);
+      return true;
+    });
+  }
+  const db = openDatabase(":memory:"); t.after(() => db.close());
+  db.exec("INSERT INTO users VALUES(1,'owner','fixture',0)");
+  const notifications = new BarkNotificationService(db, config, sender);
+  await assert.rejects(notifications.sendTest(1));
+  assert.equal(notifications.status(1).recent[0].status, "uncertain");
 });
 

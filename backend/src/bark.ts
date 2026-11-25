@@ -29,7 +29,16 @@ export function maskedBarkKey(value: string): string {
   return `${value.slice(0, 3)}***${value.slice(-3)}`;
 }
 
+export class BarkDeliveryError extends Error {
+  readonly retryable: boolean;
+  readonly uncertain: boolean;
+  constructor(message: string, retryable: boolean, uncertain: boolean) {
+    super(message); this.retryable = retryable; this.uncertain = uncertain;
+  }
+}
+
 export function safeBarkError(error: unknown): { message: string; retryable: boolean; uncertain: boolean } {
+  if (error instanceof BarkDeliveryError) return { message: error.message, retryable: error.retryable, uncertain: error.uncertain };
   const original = error instanceof Error ? error.message : "未知错误";
   const sanitized = original.replace(/https?:\/\/[^\s/$.?#].[^\s]*/gi, url => {
     try {
@@ -75,7 +84,10 @@ export class HttpBarkSender implements BarkSender {
         throw new Error(`Bark 服务器响应错误 (HTTP ${response.status}): ${text.slice(0, 100)}`);
       }
       const data = await response.json().catch(() => null) as { code?: number; message?: string } | null;
-      if (data && typeof data.code === "number" && data.code !== 200) {
+      if (!data || Array.isArray(data) || typeof data.code !== "number") {
+        throw new BarkDeliveryError("Bark 返回无效确认，结果未确认，请先检查手机通知。", false, true);
+      }
+      if (data.code !== 200) {
         throw new Error(`Bark 推送失败: ${data.message || `code ${data.code}`}`);
       }
     } catch (error) {

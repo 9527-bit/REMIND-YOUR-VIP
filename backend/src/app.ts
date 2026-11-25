@@ -11,6 +11,7 @@ import { BackupService } from "./backups.ts";
 import { idSchema } from "./validation.ts";
 import { ExchangeRates } from "./exchange-rates.ts";
 import { PaymentService } from "./payments.ts";
+import { dateInTimeZone } from "../../shared/billing.ts";
 import { PASSWORD_MAX_LENGTH } from "./password-policy.ts";
 import type { EmailNotificationService, NotificationManager } from "./notifications.ts";
 import type { BarkStatus, EmailStatus, NotificationStatus } from "../../shared/notifications.ts";
@@ -27,13 +28,14 @@ export type NotificationApi = Pick<EmailNotificationService, "status" | "sendTes
 };
 
 /** Build the independent HTTP API. Caller owns server lifecycle and database cleanup. */
-export function createApp(db: DatabaseSync, config: Config, notifications?: NotificationApi, exchangeRates = new ExchangeRates()) {
+export function createApp(db: DatabaseSync, config: Config, notifications?: NotificationApi, exchangeRates?: ExchangeRates, clock: () => Date = () => new Date()) {
   const app = express();
   const auth = new AuthService(db, config);
-  const subscriptions = new SubscriptionService(db, config.timeZone, () => new Date(), exchangeRates);
+  const rates = exchangeRates ?? new ExchangeRates(fetch, config.timeZone, clock);
+  const subscriptions = new SubscriptionService(db, config.timeZone, clock, rates);
   const history = new RenewalHistory(db);
   const backups = new BackupService(db);
-  const payments = new PaymentService(db,exchangeRates);
+  const payments = new PaymentService(db, rates, config.timeZone, clock);
   const cookieOptions = { httpOnly: true, sameSite: "lax" as const, secure: config.cookieSecure, path: "/" };
   app.disable("x-powered-by");
   app.set("trust proxy", config.trustProxy ? config.trustedProxyRanges : false);
@@ -101,13 +103,14 @@ export function createApp(db: DatabaseSync, config: Config, notifications?: Noti
   });
   // Public reading is an explicit deployment choice. Editing always goes through authentication below.
   app.get("/api/dashboard", (req,res) => {
+    const calendar = { today: dateInTimeZone(clock(), config.timeZone), timeZone: config.timeZone };
     const user = auth.session(tokenFromCookie(req.get("Cookie")));
     if (user) {
-      res.json({ items: subscriptions.list(user.id).items, canManage: true, publicDashboard: config.publicDashboard });
+      res.json({ items: subscriptions.list(user.id).items, canManage: true, publicDashboard: config.publicDashboard, ...calendar });
       return;
     }
     if (!config.publicDashboard) throw new ApiError(401,"请先登录自己的管理员账号。","AUTH_REQUIRED");
-    res.json({ items: subscriptions.listPublic(), canManage: false, publicDashboard: true });
+    res.json({ items: subscriptions.listPublic(), canManage: false, publicDashboard: true, ...calendar });
   });
   app.use("/api", (req,res,next) => {
     const user = auth.session(tokenFromCookie(req.get("Cookie")));
@@ -162,7 +165,7 @@ export function createApp(db: DatabaseSync, config: Config, notifications?: Noti
     await notifications.sendBarkTest(res.locals.user.id);
     res.json({ accepted: true });
   });
-  app.get("/api/exchange-rate", async (req,res) => res.json(await exchangeRates.lookup(req.query)));
+  app.get("/api/exchange-rate", async (req,res) => res.json(await rates.lookup(req.query)));
   app.get("/api/subscriptions", (_req,res) => res.json(subscriptions.list(res.locals.user.id)));
   app.get("/api/payments", (_req,res) => res.json({logs:payments.all(res.locals.user.id)}));
   app.post("/api/payments/preview", async (req,res) => res.json(await payments.preview(res.locals.user.id,req.body)));
@@ -187,20 +190,10 @@ export function createApp(db: DatabaseSync, config: Config, notifications?: Noti
     res.json(backups.preview(res.locals.user.id,input.backup));
   });
   app.post("/api/backup/import", (req,res) => res.json(backups.import(res.locals.user.id,req.body)));
-  app.post("/api/subscriptions", async (req,res) => {
-    if (["create","update"].includes(req.body.action) && req.body.item?.purchaseDate === req.body.item?.startDate) {
-      const draft = req.body.item;
-      try {
-        const fx = await exchangeRates.lookup({currency:draft.currency ?? "CNY",date:draft.startDate});
-        req.body.item = {...draft,fxRateToCny:fx.rate,fxRateDate:fx.rateDate,fxRateSource:fx.source,ratePending:false};
-      } catch (error) {
-        if (!(error instanceof ApiError)) throw error;
-        req.body.item = {...draft,fxRateToCny:1,fxRateDate:draft.startDate,fxRateSource:"manual",ratePending:true};
-      }
-    }
+  app.post("/api/subscriptions", (req,res) => {
+    // Saving an unrelated edit must never replace a dated rate snapshot.
     const result = subscriptions.execute(res.locals.user.id,req.body);
-    if (req.body.action === "renew") void subscriptions.refreshPendingRates();
-    res.status(req.body.action === "create" ? 201 : 200).json(result);
+    res.status(req.body?.action === "create" ? 201 : 200).json(result);
   });
   app.use((_req,_res,next) => next(new ApiError(404,"接口不存在。","NOT_FOUND")));
   const handleError: ErrorRequestHandler = (error,_req,res,_next) => {

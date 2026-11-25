@@ -15,7 +15,7 @@ export type Subscription = CurrencySnapshot & {
   cycle: keyof typeof cycles; customDays: number; startDate: string; endDate: string;
   reminderDays: number; autoRenew: boolean; note: string; color: string; version: number;
 };
-export type DashboardSnapshot = { items: Subscription[]; canManage: boolean; publicDashboard: boolean };
+export type DashboardSnapshot = { items: Subscription[]; canManage: boolean; publicDashboard: boolean; today: string; timeZone: string };
 export const palette = ["#d74747", "#269979", "#497ccd", "#8a5fc4", "#cf8b30", "#3b424c"];
 export function dateKey(date = new Date()): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
@@ -29,6 +29,11 @@ export function stateOf(item: Subscription, today: string) {
 }
 export function monthlyCost(item: Subscription): number {
   return item.amount / (item.cycle === "yearly" ? 12 : item.cycle === "quarterly" ? 3 : item.cycle === "custom" ? item.customDays / 30 : 1);
+}
+/** A pending snapshot cannot provide a known RMB amount. */
+export function subscriptionAmountCny(item: Subscription): number | null {
+  if (item.ratePending) return null;
+  return amountInCny(item.amount, item.fxRateToCny);
 }
 /** Monthly cost converted to the dashboard base currency using the locked rate. */
 export function monthlyCostCny(item: Subscription): number {

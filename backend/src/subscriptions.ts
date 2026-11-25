@@ -36,7 +36,7 @@ export class SubscriptionService {
   private timeZone: string;
   private history: RenewalHistory;
   private clock: () => Date;
-  constructor(db: DatabaseSync, timeZone: string, clock: () => Date = () => new Date(), rates = new ExchangeRates()) {
+  constructor(db: DatabaseSync, timeZone: string, clock: () => Date = () => new Date(), rates = new ExchangeRates(fetch, timeZone, clock)) {
     this.rates = rates;
     this.db=db; this.timeZone=timeZone; this.history=new RenewalHistory(db); this.clock=clock;
   }
@@ -73,14 +73,14 @@ export class SubscriptionService {
     });
   }
 
-  /** Retry missing start-date rates without changing schedule, payments or optimistic versions. */
+  /** Retry missing purchase-date rates without changing schedule, payments or optimistic versions. */
   async refreshPendingRates(): Promise<void> {
-    const rows = this.db.prepare("SELECT * FROM subscriptions WHERE rate_pending=1 AND start_date<=? LIMIT 20").all(new Date().toISOString().slice(0,10));
+    const rows = this.db.prepare("SELECT * FROM subscriptions WHERE rate_pending=1 AND purchase_date<=? ORDER BY purchase_date,id LIMIT 20").all(dateInTimeZone(this.clock(), this.timeZone));
     for (const row of rows) {
       try {
-        const fx = await this.rates.lookup({currency:row.currency,date:row.start_date});
-        this.db.prepare("UPDATE subscriptions SET purchase_date=start_date,fx_rate_to_cny=?,fx_rate_date=?,fx_rate_source=?,amount_cents=round(original_amount_cents*?),rate_pending=0 WHERE user_id=? AND id=? AND version=? AND rate_pending=1 AND start_date=?")
-          .run(fx.rate,fx.rateDate,fx.source,fx.rate,Number(row.user_id),String(row.id),Number(row.version),String(row.start_date));
+        const fx = await this.rates.lookup({currency:row.currency,date:row.purchase_date});
+        this.db.prepare("UPDATE subscriptions SET fx_rate_to_cny=?,fx_rate_date=?,fx_rate_source=?,amount_cents=round(original_amount_cents*?),rate_pending=0 WHERE user_id=? AND id=? AND version=? AND rate_pending=1 AND purchase_date=?")
+          .run(fx.rate,fx.rateDate,fx.source,fx.rate,Number(row.user_id),String(row.id),Number(row.version),String(row.purchase_date));
       } catch { /* Leave explicit pending status; retry on the next scheduler pass. */ }
     }
   }
@@ -172,8 +172,12 @@ export class SubscriptionService {
         return { id: item.id };
       }
       if (input.action === "update") {
-        const changed = subscriptionSchema.parse(input.item) as Subscription;
+        let changed = subscriptionSchema.parse(input.item) as Subscription;
         if (changed.id !== item.id) throw new ApiError(400,"记录标识不一致。");
+        // A form opened before the scheduler filled its rate must not discard that completed snapshot.
+        if (changed.ratePending && !item.ratePending && changed.currency === item.currency && changed.purchaseDate === item.purchaseDate) {
+          changed = { ...changed, fxRateToCny: item.fxRateToCny, fxRateDate: item.fxRateDate, fxRateSource: item.fxRateSource, ratePending: false };
+        }
         const scheduleChanged = changed.startDate !== item.startDate || changed.endDate !== item.endDate || changed.cycle !== item.cycle || changed.customDays !== item.customDays;
         this.db.prepare(`UPDATE subscriptions SET name=?,plan=?,category=?,amount_cents=?,cycle=?,custom_days=?,start_date=?,
           end_date=?,reminder_days=?,auto_renew=?,note=?,color=?,currency=?,purchase_date=?,fx_rate_to_cny=?,fx_rate_date=?,fx_rate_source=?,original_amount_cents=?,version=version+1,updated_at=? WHERE user_id=? AND id=? AND version=?`)

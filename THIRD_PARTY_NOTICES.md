@@ -4,6 +4,8 @@
 
 本项目使用 React、Vite、TypeScript、Express、Zod、Radix UI、Lucide、Tailwind CSS、Sonner 等第三方组件。具体依赖和锁定版本以各工作区的 package.json 与根目录 package-lock.json 为准；各组件适用其自身许可证。
 
+开发依赖 Playwright 1.62.1 用于隔离的浏览器回归测试，采用 Apache-2.0 许可，依赖包内保留许可证；不随生产后端安装，也不在生产服务中启动浏览器。
+
 后端邮件传输使用 [Nodemailer](https://nodemailer.com/smtp)，锁定版本 10.0.16，MIT-0 许可；依赖包内保留原许可证。仅使用 SMTP，不依赖其商业服务。
 
 随附的 shadcn Tailwind 样式位于 frontend/src/vendor/shadcn-tailwind-4.13.0.css，对应许可证保留在同目录许可文件。

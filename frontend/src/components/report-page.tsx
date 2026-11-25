@@ -14,7 +14,7 @@ export function ReportPage({items,today,revision,onBack,onHistory}:Props) {
   useEffect(()=>{let active=true;setError("");setLoading(true);void apiRequest<{logs:RenewalLog[]}>("/payments").then(data=>{if(active)setLogs(data.logs);}).catch(e=>{if(active)setError(e.message);}).finally(()=>{if(active)setLoading(false);});return()=>{active=false;};},[revision,retry]);
   const selectedMonth=/^\d{4}-(0[1-9]|1[0-2])$/.test(month)?month:today.slice(0,7);
   const year=selectedMonth.slice(0,4);
-  const report=paymentReport(logs,items,today,range==="all"?"":range==="year"?year:selectedMonth,"accrual");
+  const report=paymentReport(logs,items,today,range==="all"?"":range==="year"?year:selectedMonth,"confirmed");
   const chart=range==="all"?report.years:report.months;
   const availableYears=[...new Set([...report.years.map(row=>row.key),year])].sort().reverse();
   const periodLabel=range==="all"?"全部记录":range==="year"?`${year} 年`:`${year} 年 ${Number(selectedMonth.slice(5))} 月`;
@@ -25,12 +25,12 @@ export function ReportPage({items,today,revision,onBack,onHistory}:Props) {
     else {setRange("month");setMonth(key);}
   }
   return <section className="report-page spending-page" aria-label="支出分析">
-    <div className="report-heading"><div><p className="report-eyebrow">订阅费用 · 一目了然</p><h2>支出分析</h2><p className="muted">看清已经花了多少，以及接下来需要准备多少。</p></div><button className="button light" onClick={onBack}><ArrowLeft size={16}/>返回订阅</button></div>
+    <div className="report-heading"><div><p className="report-eyebrow">订阅费用 · 一目了然</p><h2>支出分析</h2><p className="muted">消费仅统计已确认付款，按实际付款日归属月份；续费预算单独展示。</p></div><button className="button light" onClick={onBack}><ArrowLeft size={16}/>返回订阅</button></div>
     {error&&<div role="alert" className="sync-banner">{error}<button className="text-action" onClick={()=>setRetry(n=>n+1)}>重新读取</button></div>}
     <div className="report-kpis payment-kpis">
-      <div><span>本月消费金额</span><strong>{ready?money(report.recordedMonthTotal):"—"}</strong></div>
-      <div><span>本年消费金额</span><strong>{ready?money(report.recordedYearTotal):"—"}</strong></div>
-      <div className="forecast-kpi"><span>本月预计付费账单</span><strong>{ready?money(report.forecast):"—"}</strong></div>
+      <div><span>本月消费金额</span><strong>{ready?money(report.monthTotal):"—"}</strong></div>
+      <div><span>本年消费金额</span><strong>{ready?money(report.yearTotal):"—"}</strong></div>
+      <div className="forecast-kpi"><span>本月预计付费账单</span><strong>{ready?report.forecastPending?"金额待补全":money(report.forecast):"—"}</strong>{ready&&report.forecastPending>0&&<small>已知 {money(report.forecast)}，另 {report.forecastPending} 项汇率待补全</small>}</div>
     </div>
     <div className="report-context"><span>当前订阅月均约 <b>{money(report.monthly)}</b>{report.ratePending?`（${report.ratePending} 项汇率待补全，未计入）`:""} · 外币为参考折算</span><button className="text-action" onClick={()=>onHistory()}>管理流水{report.pending>0?` · ${report.pending} 笔待确认`:""}<ArrowUpRight size={14}/></button></div>
     <div className="report-columns report-primary">

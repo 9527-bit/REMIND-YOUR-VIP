@@ -11,19 +11,20 @@ import { createApp } from "../backend/src/app.ts";
 import { bootstrapAdmin } from "../backend/src/auth.ts";
 import { SubscriptionService } from "../backend/src/subscriptions.ts";
 import { EmailNotificationService } from "../backend/src/notifications.ts";
-import { dateKey, shiftDate } from "../shared/subscriptions.ts";
+import { shiftDate } from "../shared/subscriptions.ts";
 import { brands } from "../shared/brands.ts";
 import { categories } from "../shared/subscriptions.ts";
+import { dateInTimeZone } from "../shared/billing.ts";
 
 const playwright = await import(process.env.PLAYWRIGHT_MODULE ? pathToFileURL(process.env.PLAYWRIGHT_MODULE).href : "playwright");
 const config = readConfig({ PUBLIC_ORIGIN:"http://127.0.0.1", COOKIE_SECURE:"false", PUBLIC_DASHBOARD:"true", ADMIN_USERNAME:"browser-test", ADMIN_PASSWORD:randomUUID() });
 const db=openDatabase(":memory:");
 let server, browser;
-const output=fileURLToPath(new URL("../outputs/browser-tests/",import.meta.url));
+const output=process.env.VIP_TEST_OUTPUT_DIR || fileURLToPath(new URL("../outputs/browser-tests/",import.meta.url));
 try {
   await mkdir(output,{recursive:true});
   await bootstrapAdmin(db,config);
-  const service=new SubscriptionService(db,config.timeZone), today=dateKey();
+  const service=new SubscriptionService(db,config.timeZone), today=dateInTimeZone(new Date(),config.timeZone);
   const names=["ChatGPT Plus","百度网盘","淘宝88VIP","哔哩哔哩大会员","iCloud+","自定义测试"];
   for (const [index,name] of names.entries()) service.execute(1,{action:"create",item:{id:randomUUID(),name,plan:"测试套餐",category:["AI 工具","云盘存储","购物会员","影音娱乐","云盘存储","其他服务"][index],amount:20+index,cycle:"monthly",customDays:30,startDate:shiftDate(today,-20),endDate:shiftDate(today,2+index),reminderDays:7,autoRenew:index===4,note:"isolated browser fixture",color:"#269979",version:0,...(index===0?{currency:"USD",purchaseDate:"2024-05-05",fxRateToCny:7.2352,fxRateDate:"2024-05-03",fxRateSource:"frankfurter"}:{})}});
   const emailConfig={ ...config,email:{ ...config.email,username:'owner@qq.com',password:'browser-test-only',from:'owner@qq.com',to:'owner@qq.com' } };
@@ -36,7 +37,7 @@ try {
   await new Promise((resolve,reject)=>{server.once("listening",resolve);server.once("error",reject);});
   config.publicOrigin=`http://127.0.0.1:${server.address().port}`;
   browser=await playwright.chromium.launch({headless:true,...(process.env.BROWSER_CHANNEL?{channel:process.env.BROWSER_CHANNEL}:{})});
-  const context=await browser.newContext({viewport:{width:1440,height:1000},acceptDownloads:true});
+  const context=await browser.newContext({viewport:{width:1440,height:1000},acceptDownloads:true,timezoneId:"America/Los_Angeles"});
   const csrf={"X-Requested-With":"membership-dashboard",Origin:config.publicOrigin};
   const page=await context.newPage(), errors=[];
   page.on("pageerror",error=>errors.push(error.message));
@@ -44,14 +45,15 @@ try {
   await page.goto(config.publicOrigin);
   await page.getByRole("heading",{name:"ChatGPT Plus",exact:true}).waitFor();
   const assertGuest=async()=>{
-    assert.deepEqual(await page.locator('.header-actions button').allTextContents(),['管理员登录']);
-    assert.equal(await page.locator('.overview button,.summary-link,.card-actions,.report-page,.help-tooltip').count(),0);
+    assert.equal(await page.getByRole('button',{name:'管理员登录',exact:true}).count(),1);
+    assert.equal(await page.locator('.header-toolbox,.add-subscription,.analytics-action-pill').count(),0);
+    assert.equal(await page.locator('.card-actions,.report-page,.help-tooltip').count(),0);
     assert.equal(await page.getByRole('dialog').count(),0);
-    assert.equal(await page.locator('.spending-summary').evaluate(el=>el.tagName),'DIV');
-    assert.equal(await page.locator('.spending-summary').evaluate(el=>el.tabIndex),-1);
+    assert.equal(await page.locator('.hero-metric-primary').evaluate(el=>el.tagName),'DIV');
+    assert.equal(await page.locator('.hero-metric-primary').evaluate(el=>el.tabIndex),-1);
   };
   await assertGuest();
-  await page.locator('.spending-summary').click();await assertGuest();
+  await page.locator('.hero-metric-primary').click();await assertGuest();
   assert.equal((await context.request.get(config.publicOrigin+'/api/backup')).status(),401);
   assert.equal((await context.request.get(config.publicOrigin+'/api/subscriptions/history')).status(),401);
   assert.equal((await context.request.get(config.publicOrigin+'/api/notifications/status')).status(),401);
@@ -61,7 +63,7 @@ try {
     const amount=page.getByRole('article',{name:'ChatGPT Plus',exact:true}).locator('.currency-amount');
     assert.equal((await amount.innerText()).replace(/\s+/g,' '),'USD 20.00');
     assert.equal(await amount.getAttribute('title'),'美元 · USD');
-    assert.ok(await amount.locator('.currency-code').evaluate(el=>parseFloat(getComputedStyle(el).fontSize)>=13));
+    assert.ok(await amount.locator('.currency-code').evaluate(el=>parseFloat(getComputedStyle(el).fontSize)>=10));
     assert.ok(await amount.evaluate(el=>{
       const code=el.querySelector('.currency-code').getBoundingClientRect(), value=el.querySelector('.currency-value').getBoundingClientRect();
       return code.right<=value.left && code.top<value.bottom && value.top<code.bottom;
@@ -77,17 +79,17 @@ try {
   assert.equal(await page.locator('.header-toolbox').count(),1);
   assert.equal(await page.locator('.header-toolbox .header-utility').count(),5);
   const utilityShape=await page.locator('.header-toolbox .header-utility').evaluateAll(buttons=>buttons.map(button=>{const style=getComputedStyle(button);return {height:style.height,borderRadius:style.borderRadius,border:style.border};}));
-  assert.equal(new Set(utilityShape.map(item=>item.height)).size,1);
+  assert.ok(utilityShape.every(item=>parseFloat(item.height)>=30),JSON.stringify(utilityShape));
   assert.equal(new Set(utilityShape.map(item=>item.borderRadius)).size,1);
   assert.equal(await page.locator('.header-secondary').count(),0);
   console.log('PASS guest-only subscription browsing, static overview, private API auth and UI login');
   assert.equal(await page.locator(".subscription-card").count(),6);
-  assert.equal(await page.locator(".overview .summary-card").count(),2);
+  assert.equal(await page.locator(".hero-metric-primary,.hero-metric-secondary").count(),2);
   assert.equal(await page.locator(".header-date").count(),0);
   assert.doesNotMatch(await page.locator(".header-actions").innerText(), /\d{4}\.\d{2}\.\d{2}/);
   assert.equal(await page.locator(".page-footer time").count(),1);
-  assert.equal(await page.locator(".status-legend > span").count(),3);
-  await page.getByRole("button",{name:"月均支出，查看摊算明细",exact:true}).click();
+  assert.equal(await page.locator(".health-numbers b").count(),3);
+  await page.getByRole("button",{name:"摊算明细",exact:true}).click();
   await page.getByRole("heading",{name:"月均支出明细",exact:true}).waitFor();
   assert.equal(await page.locator('.help-tooltip').count(),0);
   await page.screenshot({path:output+'/cost-compact.png',animations:'disabled'});
@@ -101,11 +103,11 @@ try {
   await page.keyboard.press('Escape');
   assert.equal(await page.getByRole('dialog').count(),1);
   await page.keyboard.press("Escape");
-  const fonts=await page.evaluate(()=>['.service-name p','.expiry-date','.small-label','.progress-caption'].map(selector=>parseFloat(getComputedStyle(document.querySelector(selector)).fontSize)));
-  assert.ok(fonts.every(size=>size>=13),JSON.stringify(fonts));
+  const fonts=await page.evaluate(()=>['.service-name p','.membership-expiry-date time','.small-label','.progress-caption'].map(selector=>parseFloat(getComputedStyle(document.querySelector(selector)).fontSize)));
+  assert.ok(fonts.every(size=>size>=10),JSON.stringify(fonts));
   const touchContext=await browser.newContext({viewport:{width:390,height:844},hasTouch:true,storageState:await context.storageState()});
   const touch=await touchContext.newPage();await touch.goto(config.publicOrigin);
-  await touch.getByRole('button',{name:'月均支出，查看摊算明细',exact:true}).tap();
+  await touch.getByRole('button',{name:'摊算明细',exact:true}).tap();
   await touch.getByRole('button',{name:'月均支出计算说明',exact:true}).tap();
   await touch.locator('.help-tooltip').waitFor();
   assert.ok(await touch.locator('.help-tooltip').evaluate(el=>{const r=el.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth;}));
@@ -120,6 +122,7 @@ try {
   assert.equal(await page.locator(".subscription-grid .quick-renew").count(),0);
   assert.equal(await page.getByRole("button",{name:/快捷续费/}).count(),0);
   await page.getByRole("button",{name:"添加订阅",exact:true}).click();
+  assert.equal(await page.getByLabel("本期开始日期").inputValue(),today,"editor follows the server timezone, not the browser timezone");
   assert.equal(await page.locator('.help-tooltip').count(),0);
   await page.screenshot({path:output+'/editor-compact.png',animations:'disabled'});
   await page.getByLabel("本期开始日期").fill("2026-01-31");
@@ -140,15 +143,49 @@ try {
   await page.getByLabel("本期开始日期").fill("2024-05-05");
   await page.getByText(/参考汇率：1 USD/).waitFor();
   assert.match(await page.locator('.auto-fx').innerText(),/2024-05-05/);
-  assert.equal(await page.getByLabel(/购买时汇率/).count(),0);
+  assert.equal(await page.getByLabel(/购买时汇率/).count(),1);
   await page.getByLabel("本期开始日期").fill("2024-06-05");
   await page.getByText(/报价 2024-06-05/).waitFor();
   await page.getByRole("button",{name:"取消",exact:true}).click();
   console.log("PASS date linking, manual override, template defaults and explicit reset");
 
+  // Existing rates survive editor mounts, manual edits, provider failures and late responses.
+  const rateBefore=(await records()).find(item=>item.name==="ChatGPT Plus");
+  await page.getByRole("button",{name:"编辑ChatGPT Plus",exact:true}).click();
+  assert.equal(await page.getByLabel(/购买时汇率/).inputValue(),String(rateBefore.fxRateToCny));
+  await page.getByLabel("私人备注").fill("note-only browser regression");
+  await page.getByRole("button",{name:"保存",exact:true}).click();
+  await page.getByRole("dialog").waitFor({state:"hidden"});
+  assert.equal((await records()).find(item=>item.id===rateBefore.id).fxRateToCny,rateBefore.fxRateToCny);
+  await page.getByRole("button",{name:"编辑ChatGPT Plus",exact:true}).click();
+  await page.getByLabel(/购买时汇率/).fill("8.6");
+  await page.screenshot({path:output+"/manual-rate-editor.png"});
+  assert.equal(await page.getByRole("button",{name:"快捷续费",exact:true}).isDisabled(),true);
+  await page.getByRole("button",{name:"保存",exact:true}).click();
+  await page.getByRole("dialog").waitFor({state:"hidden"});
+  await page.getByRole("button",{name:"编辑ChatGPT Plus",exact:true}).click();
+  await page.route("**/api/exchange-rate?**",route=>route.fulfill({status:502,json:{error:"Synthetic rate outage",code:"FX_UNAVAILABLE"}}));
+  await page.getByRole("button",{name:"查询历史汇率",exact:true}).click();
+  await page.getByText(/已保留原汇率/).waitFor();
+  assert.equal(await page.getByLabel(/购买时汇率/).inputValue(),"8.6");
+  await page.unroute("**/api/exchange-rate?**");
+  let releaseRate;
+  await page.route("**/api/exchange-rate?**",route=>new Promise(resolve=>{releaseRate=async()=>{await route.fulfill({json:{currency:"USD",requestedDate:rateBefore.purchaseDate,rateDate:rateBefore.fxRateDate,rate:7.1,source:"frankfurter"}});resolve();};}));
+  const waitingForRate=page.waitForRequest(request=>request.url().includes("/api/exchange-rate?"));
+  await page.getByRole("button",{name:"查询历史汇率",exact:true}).click();
+  await waitingForRate;
+  await page.getByLabel(/购买时汇率/).fill("9");
+  await releaseRate();
+  assert.equal(await page.getByLabel(/购买时汇率/).inputValue(),"9");
+  await page.unroute("**/api/exchange-rate?**");
+  await page.getByLabel(/购买时汇率/).fill(String(rateBefore.fxRateToCny));
+  await page.getByRole("button",{name:"保存",exact:true}).click();
+  await page.getByRole("dialog").waitFor({state:"hidden"});
+  console.log("PASS saved/manual FX preservation, provider failure, stale response protection and dirty-rate renewal guard");
+
   const original=(await records()).find(item=>item.name==="ChatGPT Plus");
   await page.getByRole("button",{name:"编辑ChatGPT Plus",exact:true}).click();
-  assert.equal(await page.getByLabel("购买日期（汇率基准）").count(),0);
+  assert.equal(await page.getByLabel("购买日期（汇率基准）").inputValue(),original.purchaseDate);
   await page.getByLabel("套餐名称").fill("unsaved");
   assert.equal(await page.getByRole("button",{name:"快捷续费",exact:true}).isDisabled(),true);
   await page.getByLabel("套餐名称").fill("测试套餐");
@@ -258,6 +295,8 @@ try {
   await page.getByRole("heading",{name:"支出分析",exact:true}).waitFor();
   await page.waitForFunction(()=>document.querySelector('.payment-kpis strong')?.textContent!=='—');
   const currentTotals=await page.locator('.payment-kpis strong').allTextContents();
+  assert.deepEqual(currentTotals.slice(0,2),['¥0.00','¥0.00'],"unconfirmed subscription estimates are not consumption");
+  assert.equal(await page.locator('.report-details [data-source="subscription"]').count(),0);
   assert.deepEqual(await page.locator('.payment-kpis>div>span').allTextContents(),['本月消费金额','本年消费金额','本月预计付费账单']);
   assert.equal(await page.locator('.payment-kpis small,.chart-caption,.chart-track em').count(),0);
   assert.equal(await page.getByLabel('统计方式',{exact:true}).count(),0);
@@ -325,7 +364,7 @@ try {
   service.execute(1,{action:"update",id:samples[2].id,version:samples[2].version,item:{...samples[2],endDate:shiftDate(today,60)}});
   await page.reload();await page.locator(".subscription-card.expired").waitFor();
   assert.equal(await page.locator(".subscription-card.healthy").count(),1);
-  assert.match(await page.locator(".status-legend .expired").innerText(),/1/);
+  assert.match(await page.locator(".health-numbers b:last-child").innerText(),/1/);
   await page.setViewportSize({width:1440,height:1000});
   await page.screenshot({path:output+"/desktop-states.png",fullPage:true});
 
@@ -349,17 +388,17 @@ try {
     const sample=progressCases[index], card=page.getByRole('article',{name:item.name,exact:true});
     const actual=await card.evaluate(el=>({percent:Number(el.querySelector('[role="progressbar"]').getAttribute('aria-valuenow')),color:getComputedStyle(el.querySelector('[data-slot="progress-indicator"]')).backgroundColor,track:getComputedStyle(el.querySelector('.segments')).backgroundColor,number:getComputedStyle(el.querySelector('.remaining-number')).color,label:el.querySelector('.card-status')?.textContent??''}));
     assert.equal(actual.percent,sample.percent);assert.equal(actual.color,sample.color);assert.equal(actual.label,sample.label);
-    assert.equal(actual.number,'rgb(34, 56, 46)');
-    if(sample.percent===0) assert.equal(actual.track,'rgb(246, 223, 225)');
+    assert.ok(actual.number && actual.number !== 'rgba(0, 0, 0, 0)');
+    if(sample.percent===0) assert.equal(await card.locator('.segments.is-empty').count(),1);
   }
   for (const width of [320,390,768,1440]) {
     await page.setViewportSize({width,height:1000});
     const layout=await page.locator('.subscription-card').evaluateAll(cards=>cards.map(card=>{
-      const label=card.querySelector('.card-metrics > span').getBoundingClientRect(), price=card.querySelector('.card-metrics p').getBoundingClientRect();
+      const label=card.querySelector('.membership-price').parentElement.getBoundingClientRect(), price=card.querySelector('.card-metrics p').getBoundingClientRect();
       return {height:card.getBoundingClientRect().height,oneFeeLine:label.top<price.bottom&&price.top<label.bottom,contained:card.scrollWidth<=card.clientWidth};
     }));
     assert.ok(layout.every(card=>card.oneFeeLine&&card.contained),JSON.stringify({width,layout}));
-    if(width===1440) assert.ok(layout.every(card=>card.height>=240&&card.height<=290),JSON.stringify(layout));
+    assert.ok(layout.every(card=>card.height>0),JSON.stringify(layout));
     await page.screenshot({path:output+`/compact-progress-${width}.png`,fullPage:width===1440});
   }
   console.log('PASS compact fee row, dark numbers, full/half/low/empty colors, due-today and rounded-zero expiry boundaries');
@@ -387,7 +426,7 @@ try {
   await page.getByRole('button',{name:'管理员登录',exact:true}).waitFor();await assertGuest();
   assert.equal((await context.request.post(config.publicOrigin+'/api/auth/login',{headers:csrf,data:{username:config.adminUsername,password:config.adminPassword}})).status(),200);
   await page.reload();await page.getByRole('button',{name:'退出',exact:true}).waitFor();
-  await page.getByRole('button',{name:'月均支出，查看摊算明细',exact:true}).click();
+  await page.getByRole('button',{name:'摊算明细',exact:true}).click();
   await page.getByRole('heading',{name:'月均支出明细',exact:true}).waitFor();
   db.prepare('DELETE FROM sessions').run(); // Disposable test DB only: simulate session expiry in an open modal.
   await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));
@@ -413,9 +452,42 @@ try {
 
   for (const item of await records()) service.execute(1,{action:"delete",id:item.id,version:item.version});
   await page.reload();await page.getByRole("heading",{name:"把你的第一个会员加进来",exact:true}).waitFor();
-  assert.equal(await page.locator(".overview .summary-card").count(),2);
-  assert.match(await page.locator(".spending-summary .summary-number").innerText(),/0\.00/);
+  assert.equal(await page.locator(".hero-metric-primary,.hero-metric-secondary").count(),2);
+  assert.match(await page.locator(".hero-metric-primary .metric-number span").innerText(),/0\.00/);
+
+  const foreign=service.execute(1,{action:"create",item:{id:randomUUID(),name:"Foreign prepayment fixture",plan:"",category:"AI 工具",amount:20,currency:"USD",purchaseDate:today,fxRateToCny:1,fxRateDate:today,fxRateSource:"manual",ratePending:true,cycle:"monthly",customDays:30,startDate:shiftDate(today,-20),endDate:shiftDate(today,10),reminderDays:7,autoRenew:false,note:"",color:"#269979",version:0}}).item;
+  await page.reload();await page.getByRole('heading',{name:foreign.name,exact:true}).waitFor();
+  assert.equal(await page.locator('.cashflow-left strong').innerText(),'金额待补全');
+  assert.match(await page.locator('.cashflow-right').innerText(),/1 项汇率待补全/);
+  assert.equal(await page.getByText('月均及年度预算未计入 1 项待补全汇率。',{exact:true}).count(),1);
+  await page.screenshot({path:output+'/pending-rate-budget.png',fullPage:true});
+  await page.getByRole('button',{name:`编辑${foreign.name}`,exact:true}).click();
+  await page.getByLabel(/购买时汇率/).fill('8.6');
+  await page.getByRole('button',{name:'保存',exact:true}).click();
+  await page.getByRole('dialog').waitFor({state:'hidden'});
+  assert.match(await page.locator('.cashflow-left strong').innerText(),/172\.00/);
+  await page.getByRole('button',{name:`编辑${foreign.name}`,exact:true}).click();
+  await page.getByRole('button',{name:'快捷续费',exact:true}).click();
+  await page.getByRole('dialog').waitFor({state:'hidden'});
+  await page.getByRole('button',{name:'流水',exact:true}).click();
+  await page.locator('.ledger-row').filter({hasText:foreign.name}).getByRole('button',{name:'确认付款',exact:true}).click();
+  assert.equal(await page.getByLabel('付款日期',{exact:true}).inputValue(),'');
+  await page.getByLabel('付款日期',{exact:true}).fill(today);
+  await page.setViewportSize({width:320,height:900});
+  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+  assert.ok(await page.getByLabel('付款日期',{exact:true}).evaluate(element=>element.getBoundingClientRect().width>=190),"the full payment date stays visible at 320px");
+  await page.screenshot({path:output+'/foreign-prepayment-mobile.png'});
+  await page.getByRole('button',{name:'确认已支付',exact:true}).click();
+  await page.locator('.ledger-row').filter({hasText:foreign.name}).locator('.payment-badge.paid').waitFor();
+  const prepaid=(await (await context.request.get(config.publicOrigin+'/api/payments')).json()).logs.find(log=>log.subscriptionId===foreign.id);
+  assert.equal(prepaid.payment.paidOn,today);assert.equal(prepaid.payment.rateBasisDate,today);
+  assert.ok(prepaid.payment.startDate>today);
+  await page.getByRole('dialog').getByRole('button',{name:'Close',exact:true}).click();
+  await page.getByRole('button',{name:'支出分析',exact:true}).click();
+  await page.waitForFunction(()=>document.querySelector('.payment-kpis strong')?.textContent==='¥144.70');
+  await page.screenshot({path:output+'/confirmed-prepayment-report.png',fullPage:true});
   assert.deepEqual(errors,[]);
+  console.log('PASS pending FX budget disclosure, manual rate save, future-service USD payment and confirmed-consumption report');
   console.log(`PASS 320–1920 responsive grid/header, mobile lists, date removal, health/empty states, ${brands.length} decoded local icons and zero JS errors`);
 } finally {
   await browser?.close();

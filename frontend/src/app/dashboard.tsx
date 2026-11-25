@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Bell, BriefcaseBusiness, Check, Cloud,
   Download, Info, LayoutGrid, Music2, Plus,
@@ -13,7 +13,8 @@ import { Toaster } from "@/components/ui/sonner";
 import { LoginDialog } from "@/components/login-dialog";
 import { apiRequest, ApiError } from "@/lib/api";
 import { toast } from "sonner";
-import { categories, cycles, dateKey, monthlyCostCny, remaining, renewDate, occupiedCategories, shiftDate, stateOf, type Subscription, type DashboardSnapshot } from "@/lib/subscriptions";
+import { categories, cycles, monthlyCostCny, remaining, renewDate, occupiedCategories, shiftDate, stateOf, type Subscription, type DashboardSnapshot } from "@/lib/subscriptions";
+import { dateInTimeZone } from "../../../shared/billing.ts";
 import { formatCurrency, money } from "../../../shared/currency.ts";
 import type { RenewalResult } from "../../../shared/renewals.ts";
 import { linkedEndDate, updateDraftPeriod, membershipTemplates, requestId, type MembershipTemplate } from "@/lib/dashboard-helpers";
@@ -21,14 +22,14 @@ import { HistoryDialog } from "@/components/history-dialog";
 import { BackupDialog } from "@/components/backup-dialog";
 import { SubscriptionRow } from "@/components/subscription-row";
 import { SubscriptionCard } from "@/components/subscription-card";
-import { ReportPage } from "@/components/report-page";
 import { CurrencyFields, type CurrencyDraft } from "@/components/currency-fields";
-import { DashboardOverview } from "@/components/dashboard-overview";
 import { GlobalAnalyticsDashboard } from "@/components/global-analytics-dashboard";
 import { CompactDialogHeader, ContextHelp } from "@/components/context-help";
 import { EmailReminders } from "@/components/email-reminders";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { AmbientRain } from "@/components/ambient-rain";
+
+const ReportPage = lazy(() => import("@/components/report-page").then(module => ({ default: module.ReportPage })));
 
 const categoryIcons = { "影音娱乐": Music2, "购物电商": ShoppingBag, "AI 工具": Sparkles, "云存储": Cloud, "办公效率": BriefcaseBusiness, "设计与创作": Palette, "云服务与网络": Globe, "生活服务": Coffee, "游戏会员": Gamepad2, "学习教育": GraduationCap, "其他服务": LayoutGrid };
 const currency = (n: number) => formatCurrency(n, "CNY");
@@ -78,7 +79,9 @@ function downloadCalendar(item: Subscription) {
 }
 
 export default function Dashboard() {
-  const [today, setToday] = useState(() => dateKey());
+  const [timeZone, setTimeZone] = useState("Asia/Shanghai");
+  const timeZoneRef = useRef(timeZone);
+  const [today, setToday] = useState(() => dateInTimeZone(new Date(), timeZone));
   const [items, setItems] = useState<Subscription[]>([]);
   const [publicDashboard, setPublicDashboard] = useState(false);
   const requestSequence = useRef(0);
@@ -94,7 +97,7 @@ export default function Dashboard() {
   const [reportOpen, setReportOpen] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
   const [selected, setSelected] = useState<Subscription | null>(null);
-  const [draft, setDraft] = useState<Draft>(() => blankDraft(dateKey()));
+  const [draft, setDraft] = useState<Draft>(() => blankDraft(today));
   const [confirmAction, setConfirmAction] = useState<ConfirmAction>(null);
   const [saving, setSaving] = useState(false);
   const [clock, setClock] = useState(() => new Date());
@@ -119,11 +122,11 @@ export default function Dashboard() {
     toast.dismiss();
     setReportOpen(false); setShowReminders(false); setShowCostBreakdown(false);
     setEditorOpen(false); setHistoryOpen(false); setBackupOpen(false); setConfirmAction(null);
-    setSelected(null); setHistoryItem(null); setDraft(blankDraft(dateKey())); setUndoReceipts({});
+    setSelected(null); setHistoryItem(null); setDraft(blankDraft(dateInTimeZone(new Date(), timeZoneRef.current))); setUndoReceipts({});
   }, [authRequired]);
 
   useEffect(() => {
-    const timer = setInterval(() => setToday(dateKey()), 30_000);
+    const timer = setInterval(() => setToday(dateInTimeZone(new Date(), timeZoneRef.current)), 30_000);
     return () => clearInterval(timer);
   }, []);
 
@@ -141,6 +144,9 @@ export default function Dashboard() {
     try {
       const payload = await apiRequest<DashboardSnapshot>("/dashboard");
       if (sequence !== requestSequence.current) return;
+      timeZoneRef.current = payload.timeZone;
+      setTimeZone(payload.timeZone);
+      setToday(payload.today);
       setAuthRequired(!payload.canManage);
       setPublicDashboard(payload.publicDashboard);
       setSyncError(null);
@@ -157,7 +163,7 @@ export default function Dashboard() {
       setPublicDashboard(false);
       setSelected(null);
       setEditorOpen(false);
-      setDraft(blankDraft(dateKey()));
+      setDraft(blankDraft(dateInTimeZone(new Date(), timeZoneRef.current)));
       setSyncError(error instanceof ApiError && error.status === 401 ? null : error instanceof Error ? error.message : "读取订阅失败。");
     } finally {
       if (sequence === requestSequence.current) setLoading(false);
@@ -173,7 +179,7 @@ export default function Dashboard() {
     // Do not overwrite an open editor or create avoidable optimistic-lock conflicts while typing.
     const refresh = () => {
       if (document.visibilityState === "visible" && !editorOpen && !loginOpen && !saving && !confirmAction) {
-        setToday(dateKey());
+        setToday(dateInTimeZone(new Date(), timeZoneRef.current));
         void loadRecords(true);
       }
     };
@@ -294,7 +300,9 @@ export default function Dashboard() {
   function changeDraft(field: keyof Draft, value: string | boolean) {
     setDraft(current => {
       const next = updateDraftPeriod(current, { [field]: value } as Partial<Draft>, dateLinked);
-      return field === "startDate" ? { ...next, purchaseDate: String(value), fxRateDate: String(value), fxRateToCny: next.currency === "CNY" ? "1" : "", fxRateSource: "manual" } : next;
+      return field === "startDate" && !selected && current.purchaseDate === current.startDate
+        ? { ...next, purchaseDate: String(value), fxRateDate: String(value), fxRateToCny: next.currency === "CNY" ? "1" : "", fxRateSource: "manual", ratePending: next.currency !== "CNY" }
+        : next;
     });
     if (field === "endDate") { setDateLinked(false); setPeriodPrompt(null); }
     else if (["startDate","cycle","customDays"].includes(field) && !dateLinked) {
@@ -331,11 +339,11 @@ export default function Dashboard() {
     if (!Number.isFinite(amount) || amount < 0) throw new Error("费用需要是有效的数字。");
     if (draft.endDate <= draft.startDate) throw new Error("到期日期必须晚于开始日期。");
     const currencyCode = draft.currency;
-    const purchaseDate = draft.startDate;
+    const purchaseDate = draft.purchaseDate || draft.startDate;
     const rate = currencyCode === "CNY" || draft.ratePending ? 1 : Number(draft.fxRateToCny);
     if (!Number.isFinite(rate) || rate <= 0) throw new Error("请输入有效的购买期汇率。");
     return { ...draft, id: selected ? selected.id : (globalThis.crypto?.randomUUID?.() || ""), amount, customDays, reminderDays,
-      currency: currencyCode, purchaseDate, fxRateToCny: rate, fxRateDate: draft.fxRateDate ?? purchaseDate, fxRateSource: draft.fxRateSource ?? "manual", version: selected?.version ?? 0 };
+      currency: currencyCode, purchaseDate, fxRateToCny: rate, fxRateDate: draft.ratePending ? purchaseDate : draft.fxRateDate || purchaseDate, fxRateSource: draft.fxRateSource ?? "manual", version: selected?.version ?? 0 };
   }
 
   async function saveDraft() {
@@ -377,9 +385,8 @@ export default function Dashboard() {
     }
   }
 
-  const editableDraft = (value: Draft) => { const {purchaseDate: _date, fxRateToCny: _rate, fxRateDate: _quote, fxRateSource: _source, ratePending: _pending, ...rest} = value; return rest; };
-  const draftChanged = selected !== null && JSON.stringify(editableDraft(draft)) !== JSON.stringify(editableDraft(toDraft(selected)));
-  const footerTime = clock.toLocaleString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).replaceAll("/", ".");
+  const draftChanged = selected !== null && JSON.stringify(draft) !== JSON.stringify(toDraft(selected));
+  const footerTime = clock.toLocaleString("zh-CN", { timeZone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).replaceAll("/", ".");
 
   return <div className="app-shell">
     <AmbientRain />
@@ -402,7 +409,7 @@ export default function Dashboard() {
       {syncError && <div className="sync-banner" role="status"><Info size={16} /><span>{syncError}</span><button onClick={() => void loadRecords()}>重新读取</button></div>}
       {!loading && authRequired && !publicDashboard && !syncError && <div className="auth-banner"><ShieldCheck size={16} /><span>请登录查看订阅。</span><button onClick={() => setLoginOpen(true)}>登录后管理</button></div>}
 
-      {!authRequired && reportOpen ? <ReportPage items={items} today={today} revision={historyOpen} onHistory={id => { setHistoryItem(items.find(item=>item.id===id) ?? null); setHistoryOpen(true); }} onBack={() => setReportOpen(false)} /> : <>
+      {!authRequired && reportOpen ? <Suspense fallback={<p role="status">正在读取报表…</p>}><ReportPage items={items} today={today} revision={historyOpen} onHistory={id => { setHistoryItem(items.find(item=>item.id===id) ?? null); setHistoryOpen(true); }} onBack={() => setReportOpen(false)} /></Suspense> : <>
       <GlobalAnalyticsDashboard
         items={items}
         today={today}
@@ -457,7 +464,7 @@ export default function Dashboard() {
         <div className="cost-total"><span>合计 / 月</span><strong>¥{currency(monthly)}</strong></div>
       </DialogContent>
     </Dialog>
-    {!authRequired && historyOpen && <HistoryDialog key={historyItem?.id || "all"} open={historyOpen} onOpenChange={setHistoryOpen} subscriptionId={historyItem?.id} subscriptionName={historyItem?.name} items={items} onChanged={() => void loadRecords(true)} />}
+    {!authRequired && historyOpen && <HistoryDialog key={historyItem?.id || "all"} open={historyOpen} onOpenChange={setHistoryOpen} subscriptionId={historyItem?.id} subscriptionName={historyItem?.name} items={items} today={today} onChanged={() => void loadRecords(true)} />}
     {!authRequired && backupOpen && <BackupDialog open={backupOpen} onOpenChange={setBackupOpen} onImported={async () => { await loadRecords(); }} />}
     <LoginDialog open={loginOpen} onOpenChange={setLoginOpen} onSuccess={loadRecords} />
     <Toaster position="bottom-right" richColors theme="light" />

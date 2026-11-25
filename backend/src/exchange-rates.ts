@@ -2,6 +2,7 @@ import { z } from "zod";
 import { currencyCodes, type HistoricalRate } from "../../shared/currency.ts";
 import { dateSchema } from "./validation.ts";
 import { ApiError } from "./errors.ts";
+import { dateInTimeZone } from "../../shared/billing.ts";
 
 export const rateQuerySchema = z.object({ currency: z.enum(currencyCodes), date: dateSchema }).strict();
 const responseSchema = z.object({ date: dateSchema, base: z.string(), quote: z.string(), rate: z.number().finite().positive().max(100_000) });
@@ -11,12 +12,16 @@ export class ExchangeRates {
   private cache = new Map<string, { value: HistoricalRate; expires: number }>();
   private pending = new Map<string, Promise<HistoricalRate>>();
   private fetcher: typeof fetch;
-  constructor(fetcher: typeof fetch = fetch) { this.fetcher = fetcher; }
+  private timeZone: string;
+  private clock: () => Date;
+  constructor(fetcher: typeof fetch = fetch, timeZone = "Asia/Shanghai", clock: () => Date = () => new Date()) {
+    this.fetcher = fetcher; this.timeZone = timeZone; this.clock = clock;
+  }
 
   async lookup(input: unknown): Promise<HistoricalRate> {
     const { currency, date } = rateQuerySchema.parse(input);
     if (currency === "CNY") return { currency, requestedDate: date, rateDate: date, rate: 1, source: "manual" };
-    if (date > new Date().toISOString().slice(0, 10)) throw new ApiError(400, "本期尚未开始，开始当天再自动获取汇率。");
+    if (date > dateInTimeZone(this.clock(), this.timeZone)) throw new ApiError(400, "所选汇率日期尚未到来，请选择已发生的购买或付款日期。");
     const key = currency + ":" + date;
     const cached = this.cache.get(key);
     if (cached && cached.expires > Date.now()) return cached.value;

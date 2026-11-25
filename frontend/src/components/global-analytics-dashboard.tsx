@@ -24,6 +24,7 @@ import {
   remaining,
   stateOf,
   monthlyCostCny,
+  subscriptionAmountCny,
 } from "@/lib/subscriptions";
 import { formatCurrency } from "../../../shared/currency.ts";
 import { ServiceLogo } from "@/components/service-logo";
@@ -79,7 +80,7 @@ export function GlobalAnalyticsDashboard({
   };
 
   // 1. 基础健康与活跃度统计
-  const { active, counts, next30DaysDue, next30DaysTotal } = useMemo(() => {
+  const { active, counts, next30DaysDue, next30DaysTotal, next30DaysPending } = useMemo(() => {
     const act = items.filter((i) => remaining(i, today) >= 0);
     const cnts = { healthy: 0, soon: 0, expired: 0 };
     for (const item of items) {
@@ -95,11 +96,11 @@ export function GlobalAnalyticsDashboard({
       .sort((a, b) => remaining(a, today) - remaining(b, today));
 
     const dueTotal = dueSoon.reduce(
-      (sum, item) => sum + item.amount * (item.fxRateToCny || 1),
+      (sum, item) => sum + (subscriptionAmountCny(item) ?? 0),
       0
     );
 
-    return { active: act, counts: cnts, next30DaysDue: dueSoon, next30DaysTotal: dueTotal };
+    return { active: act, counts: cnts, next30DaysDue: dueSoon, next30DaysTotal: dueTotal, next30DaysPending: dueSoon.filter(item => subscriptionAmountCny(item) === null).length };
   }, [items, today]);
 
   // 2. 分类支出与环形图数据计算
@@ -293,14 +294,16 @@ export function GlobalAnalyticsDashboard({
               </div>
             </div>
 
+            {active.some(item => item.ratePending) && <small className="muted">月均及年度预算未计入 {active.filter(item => item.ratePending).length} 项待补全汇率。</small>}
+
             {/* 30天现金准备预测 */}
             <div className="cashflow-pill">
               <div className="cashflow-left">
                 <Clock size={12} className="text-amber-400" />
-                <span>未来 30 天需准备：</span>
-                <strong>¥ {formatCurrency(next30DaysTotal, "CNY")}</strong>
+                <span title="按到期日和登记费用估算，尚未扣除提前付款或停订。">未来 30 天到期预算：</span>
+                <strong>{next30DaysPending ? "金额待补全" : `¥ ${formatCurrency(next30DaysTotal, "CNY")}`}</strong>
               </div>
-              <span className="cashflow-right">{next30DaysDue.length} 笔账单即将叩门</span>
+              <span className="cashflow-right">{next30DaysPending ? `已知 ¥${formatCurrency(next30DaysTotal, "CNY")} · ${next30DaysPending} 项汇率待补全` : `${next30DaysDue.length} 项订阅即将到期`}</span>
             </div>
 
             {/* 订阅健康度遥测条 */}
