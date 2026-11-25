@@ -2,7 +2,7 @@ import type { CSSProperties } from "react";
 import { CalendarDays, Clock3, Ellipsis, RefreshCw, Wallet, ZapOff } from "lucide-react";
 import { ServiceLogo } from "@/components/service-logo";
 import { Progress } from "@/components/ui/progress";
-import { cycles, isFixedExpense, remindersEnabled, periodPercentage, progressColor, remaining, stateOf, type Subscription } from "@/lib/subscriptions";
+import { billingCadence, cycles, isFixedExpense, monthlyCost, remindersEnabled, periodPercentage, progressColor, remaining, stateOf, type Subscription } from "@/lib/subscriptions";
 import { CurrencyAmount } from "@/components/currency-amount";
 import { resolveBrandColor } from "@/lib/brand-colors";
 import { useCardSpotlight } from "@/lib/use-card-spotlight";
@@ -102,23 +102,23 @@ export function SubscriptionCard({ item, today, canManage, onEdit }: Props) {
               <span>{fixed ? "每月预算" : days < 0 ? "已过期" : "剩余时间"}</span>
             </span>
             <span className="remaining-number telemetry-value-days">
-              {fixed ? <CurrencyAmount amount={item.amount} currency={item.currency} /> : <>{Math.abs(days)}<span>天</span></>}
+              {fixed ? <CurrencyAmount amount={monthlyCost(item)} currency={item.currency} /> : <>{Math.abs(days)}<span>天</span></>}
             </span>
           </span>
 
           <span className="telemetry-col card-metric">
             <span className="small-label telemetry-label">
               <Wallet size={12} />
-              <span>{fixed ? "账单日" : "续费金额"}</span>
+              <span>{fixed ? item.cycle === "monthly" ? "账单日" : "记账周期" : "续费金额"}</span>
             </span>
             <p className="membership-price telemetry-value-price">
-              {fixed ? <>每月 {item.billingDay ?? Number(item.startDate.slice(8))} 日</> : <><CurrencyAmount amount={item.amount} currency={item.currency} /><small> / {item.cycle === "custom" ? `${item.customDays}天` : cycles[item.cycle].replace("付", "")}</small></>}
+              {fixed ? item.cycle === "monthly" ? <>每月 {item.billingDay ?? Number(item.startDate.slice(8))} 日</> : <>{billingCadence(item)}</> : <><CurrencyAmount amount={item.amount} currency={item.currency} /><small> / {item.cycle === "custom" ? `${item.customDays}天` : cycles[item.cycle].replace("付", "")}</small></>}
             </p>
           </span>
         </div>
 
         {/* 时间进度与刻度 */}
-        {fixed ? <p className="fixed-expense-caption">{item.autoRenew ? item.autoRecord ? "按登记金额自动记账" : "每月生成待确认账单" : "已暂停生成新账单"} · {remindersEnabled(item) ? "已开启提醒" : "不提醒"}</p> : <><div className="progress-caption">
+        {fixed ? <p className="fixed-expense-caption">{item.autoRenew ? item.autoRecord ? "按登记金额自动记账" : `${billingCadence(item)}生成待确认账单` : "已暂停生成新账单"} · {remindersEnabled(item) ? "已开启提醒" : "不提醒"}</p> : <><div className="progress-caption">
           {statusTagLabel ? (
             <span className={`card-status ${days <= 0 ? "expired" : "soon"}`}>{statusTagLabel}</span>
           ) : (
@@ -151,7 +151,7 @@ export function SubscriptionCard({ item, today, canManage, onEdit }: Props) {
             {item.autoRenew ? (
               <>
                 <RefreshCw size={10} className="spin" />
-                <span>{fixed ? item.autoRecord ? "自动记账" : "按月生成" : "自动续费"}</span>
+                <span>{fixed ? item.autoRecord ? "自动记账" : `${billingCadence(item).replace("每", "按")}生成` : "自动续费"}</span>
               </>
             ) : (
               <>

@@ -1,7 +1,7 @@
 /** Fixed-expense UI regression against an isolated in-memory database and fake senders. */
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import express from "express";
 import { readConfig } from "../backend/src/config.ts";
@@ -18,7 +18,7 @@ const output = process.env.VIP_FIXED_OUTPUT_DIR || fileURLToPath(new URL("../out
 const config = readConfig({ PUBLIC_ORIGIN:"http://127.0.0.1", COOKIE_SECURE:"false", ADMIN_PASSWORD:randomUUID(),
   EMAIL_NOTIFICATIONS:"true",SMTP_USER:"fixture@example.com",SMTP_PASSWORD:"fixture",BARK_NOTIFICATIONS:"true",BARK_KEY:"fixture",EMAIL_REMINDER_HOUR:"0" });
 const db = openDatabase(":memory:");
-let now = new Date("2026-01-31T02:00:00Z"), server, browser;
+let now = new Date("2026-01-31T02:00:00Z"), server, browser, page;
 let emailCount = 0, barkCount = 0;
 const service = new SubscriptionService(db,config.timeZone,() => now), payments = new PaymentService(db);
 const notifications = new NotificationManager(
@@ -38,7 +38,7 @@ try {
   const context = await browser.newContext({viewport:{width:1440,height:1100},timezoneId:"America/Los_Angeles",acceptDownloads:true});
   const headers = {Origin:config.publicOrigin,"X-Requested-With":"membership-dashboard"};
   assert.equal((await context.request.post(config.publicOrigin+"/api/auth/login",{headers,data:{username:config.adminUsername,password:config.adminPassword}})).status(),200);
-  const page = await context.newPage(), errors = [];
+  page = await context.newPage(); const errors = [];
   page.on("pageerror",error=>errors.push(error.message));
   await page.clock.install({time:now});
   await page.goto(config.publicOrigin);
@@ -70,6 +70,7 @@ try {
   const calendar = await calendarDownload;
   assert.ok(!(await readFile(await calendar.path(),"utf8")).includes("VALARM"));
   await page.getByRole("button",{name:"取消",exact:true}).click();
+  await page.getByRole("dialog").waitFor({state:"hidden"});
   console.log("PASS silent fixed-expense defaults, current pending bill, monthly budget and calendar without alarm");
 
   await page.locator(".add-subscription").click();
@@ -166,6 +167,50 @@ try {
   await page.getByText(/文件校验通过/).waitFor();
   assert.deepEqual(errors,[]);
   console.log("PASS pause/resume without back-charging, void deduplication, silent channels and v5 backup preview");
+  await page.getByRole("dialog").getByRole("button",{name:"Close",exact:true}).click();
+  await page.getByRole("dialog").waitFor({state:"hidden"});
+  await page.setViewportSize({width:1440,height:1100});
+  for(const fixture of [
+    {name:"年度话费测试",cycle:"yearly",amount:99,end:"2027-04-30",monthly:"8.25",cadence:"每年"},
+    {name:"季度房租测试",cycle:"quarterly",amount:300,end:"2026-07-30",monthly:"100.00",cadence:"每季"},
+    {name:"自定义周期测试",cycle:"custom",days:45,amount:45,end:"2026-06-14",monthly:"30.00",cadence:"每 45 天"},
+  ]) {
+    await page.locator(".add-subscription").click();
+    await page.getByRole("dialog").waitFor();
+    await page.getByLabel("记录类型",{exact:true}).selectOption("fixed");
+    await page.getByLabel("支出名称").fill(fixture.name);
+    const cycle=page.getByLabel("记账周期",{exact:true});assert.equal(await cycle.isDisabled(),false);
+    await cycle.selectOption(fixture.cycle);
+    if(fixture.days)await page.getByLabel("自定义天数",{exact:true}).fill(String(fixture.days));
+    await page.getByLabel("费用").fill(String(fixture.amount));
+    assert.equal(await page.getByLabel("本期账单日").inputValue(),"2026-04-30");
+    assert.equal(await page.getByLabel("下次账单日").inputValue(),fixture.end);
+    if(fixture.cycle==="yearly")await page.screenshot({path:output+"/fixed-yearly-editor.png",animations:"disabled",style:"[data-sonner-toaster]{visibility:hidden!important}"});
+    await page.getByRole("button",{name:"保存",exact:true}).click();await page.getByRole("dialog").waitFor({state:"hidden"});
+    const stored=service.list(1).items.find(item=>item.name===fixture.name);
+    assert.equal(stored.cycle,fixture.cycle);assert.equal(stored.endDate,fixture.end);
+    assert.equal(payments.all(1).filter(log=>log.subscriptionId===stored.id).length,1);
+    const card=page.getByRole("article",{name:fixture.name,exact:true});
+    assert.ok((await card.locator(".remaining-number").innerText()).includes(fixture.monthly));
+    assert.ok((await card.innerText()).includes(fixture.cadence));
+    await page.getByRole("button",{name:`编辑${fixture.name}`,exact:true}).click();
+    assert.equal(await page.getByLabel("记账周期",{exact:true}).inputValue(),fixture.cycle);
+    assert.equal(await page.getByLabel("记账周期",{exact:true}).isDisabled(),false);
+    if(fixture.days)assert.equal(await page.getByLabel("自定义天数",{exact:true}).inputValue(),String(fixture.days));
+    await page.getByRole("button",{name:"取消",exact:true}).click();
+    await page.getByRole("dialog").waitFor({state:"hidden"});
+  }
+  await page.setViewportSize({width:320,height:1100});
+  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+  await page.getByRole("button",{name:"编辑年度话费测试",exact:true}).click();
+  await page.getByRole("dialog").evaluate(element=>{element.scrollTop=0;});
+  await page.screenshot({path:output+"/fixed-yearly-editor-320.png",animations:"disabled",style:"[data-sonner-toaster]{visibility:hidden!important}"});
+  await page.getByRole("button",{name:"取消",exact:true}).click();
+  assert.deepEqual(errors,[]);
+  console.log("PASS selectable yearly/quarterly/custom fixed cycles, linked billing dates, saved cadence and amortised budgets");
+} catch(error) {
+  if(page) { await page.screenshot({path:output+"/failure.png",fullPage:true});await writeFile(output+"/failure.txt",await page.locator("body").innerText()); }
+  throw error;
 } finally {
   await browser?.close();
   if(server)await new Promise(resolve=>server.close(resolve));

@@ -41,6 +41,10 @@ export function monthlyCost(item: Subscription): number {
   if (item.phoneChargeType === "once") return 0;
   return item.amount / (item.cycle === "yearly" ? 12 : item.cycle === "quarterly" ? 3 : item.cycle === "custom" ? item.customDays / 30 : 1);
 }
+/** Human-readable frequency shared by fixed-expense budget cards and bill captions. */
+export function billingCadence(item: Pick<Subscription, "cycle" | "customDays">): string {
+  return item.cycle === "custom" ? `每 ${item.customDays} 天` : { monthly: "每月", quarterly: "每季", yearly: "每年" }[item.cycle];
+}
 /** A pending snapshot cannot provide a known RMB amount. */
 export function subscriptionAmountCny(item: Subscription): number | null {
   if (item.ratePending) return null;

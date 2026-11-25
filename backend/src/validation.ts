@@ -69,7 +69,6 @@ export const subscriptionObject = z.object({
 export const validPeriod = (item: { startDate: string; endDate: string }) => item.endDate > item.startDate;
 export const validExpenseSettings = (item: { expenseType?: string; autoRecord?: boolean; cycle: string; phoneAccountId?: string; phoneChargeType?: string; customDays?: number; autoRenew?: boolean; reminderEnabled?: boolean }) => {
   if (item.autoRecord && item.expenseType !== "fixed" && item.expenseType !== "phone") return false;
-  if (item.expenseType === "fixed" && item.cycle !== "monthly") return false;
   if (item.expenseType !== "phone") return !item.phoneAccountId && !item.phoneChargeType;
   if (!item.phoneAccountId || !item.phoneChargeType) return false;
   if (item.phoneChargeType === "once") return item.cycle === "custom" && item.customDays === 1 && !item.autoRenew && !item.reminderEnabled;

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { randomUUID } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
@@ -190,7 +190,7 @@ test("v9 migration preserves existing data and defaults without generating bills
     assert.equal(after.expense_type,"subscription");assert.equal(after.reminder_enabled,1);assert.equal(after.auto_record,0);
     assert.equal(db.prepare("SELECT password_hash FROM users").get()!.password_hash,"preserved-hash");
     assert.equal(db.prepare("SELECT count(*) AS n FROM subscription_renewal_logs").get()!.n,0);
-    assert.equal(db.prepare("PRAGMA user_version").get()!.user_version,11);
+    assert.equal(db.prepare("PRAGMA user_version").get()!.user_version,12);
   } finally {db.close();}
 });
 
@@ -204,7 +204,101 @@ test("bill generation and date advancement roll back together if any monthly ins
 
 test("invalid combinations are rejected and scheduled fixed bills cannot be manually renewed", t => {
   const {db,service} = setup();t.after(()=>db.close());
-  for(const patch of [{cycle:"yearly" as const},{expenseType:"subscription" as const,autoRecord:true}])assert.throws(()=>service.execute(1,{action:"create",item:record(patch)}));
+  for(const patch of [{expenseType:"subscription" as const,autoRecord:true}])assert.throws(()=>service.execute(1,{action:"create",item:record(patch)}));
   const first=service.execute(1,{action:"create",item:record()}).item!;
   assert.throws(()=>service.execute(1,{action:"renew",id:first.id,version:first.version}),{code:"FIXED_EXPENSE_RENEWAL"});
+});
+
+test("quarterly fixed expenses keep month-end anchors and book the full quarter only once", t => {
+  const {db,service,payments}=setup();t.after(()=>db.close());
+  const first=service.execute(1,{action:"create",item:record({cycle:"quarterly",amount:300,endDate:"2026-04-30",autoRecord:true})}).item!;
+  assert.equal(monthlyCostCny(first),100);
+  assert.equal(service.advanceAutomaticRenewals(at("2026-07-31")),1);
+  assert.equal(service.advanceAutomaticRenewals(at("2026-07-31")),0);
+  const logs=payments.all(1).sort((a,b)=>a.newStartDate.localeCompare(b.newStartDate));
+  assert.deepEqual(logs.map(log=>log.newStartDate),["2026-01-31","2026-04-30","2026-07-31"]);
+  assert.ok(logs.every(log=>log.payment?.amount===300));
+  const current=service.list(1).items[0];assert.equal(current.endDate,"2026-10-31");assert.equal(current.billingDay,31);
+  assert.equal(paymentReport(logs,[current],"2026-07-31","2026-07","confirmed").total,300);
+});
+
+test("yearly fixed expenses amortise budgets but preserve annual payments and leap-year anchors", t => {
+  const {db,service,payments}=setup("2024-02-29");t.after(()=>db.close());
+  const first=service.execute(1,{action:"create",item:record({cycle:"yearly",amount:99,startDate:"2024-02-29",endDate:"2025-02-28",autoRecord:true})}).item!;
+  assert.equal(monthlyCostCny(first),8.25);
+  service.advanceAutomaticRenewals(at("2028-02-29"));assert.equal(service.advanceAutomaticRenewals(at("2028-02-29")),0);
+  const logs=payments.all(1).sort((a,b)=>a.newStartDate.localeCompare(b.newStartDate));
+  assert.deepEqual(logs.map(log=>log.newStartDate),["2024-02-29","2025-02-28","2026-02-28","2027-02-28","2028-02-29"]);
+  assert.ok(logs.every(log=>log.payment?.amount===99));
+  assert.equal(service.list(1).items[0].endDate,"2029-02-28");
+  assert.equal(paymentReport(logs,service.list(1).items,"2028-02-29","2025","confirmed").total,99);
+});
+
+test("custom-day fixed expenses use their saved interval without monthly approximation in the ledger", t => {
+  const {db,service,payments}=setup();t.after(()=>db.close());
+  const first=service.execute(1,{action:"create",item:record({cycle:"custom",customDays:17,amount:34,endDate:"2026-02-17",autoRecord:true})}).item!;
+  assert.equal(monthlyCostCny(first),60);
+  service.advanceAutomaticRenewals(at("2026-03-06"));service.advanceAutomaticRenewals(at("2026-03-06"));
+  const logs=payments.all(1).sort((a,b)=>a.newStartDate.localeCompare(b.newStartDate));
+  assert.deepEqual(logs.map(log=>log.newStartDate),["2026-01-31","2026-02-17","2026-03-06"]);
+  assert.ok(logs.every(log=>log.payment?.amount===34));assert.equal(service.list(1).items[0].endDate,"2026-03-23");
+});
+
+test("future quarterly, yearly and custom fixed bills wait for their actual start date", t => {
+  const {db,service,payments}=setup();t.after(()=>db.close());
+  for(const [cycle,endDate] of [["quarterly","2026-06-01"],["yearly","2027-03-01"],["custom","2026-03-15"]] as const) {
+    service.execute(1,{action:"create",item:record({cycle,customDays:14,startDate:"2026-03-01",endDate})});
+  }
+  assert.equal(payments.all(1).length,0);assert.equal(service.advanceAutomaticRenewals(at("2026-02-28")),0);
+  assert.equal(service.advanceAutomaticRenewals(at("2026-03-01")),3);assert.equal(payments.all(1).length,3);
+  assert.ok(payments.all(1).every(log=>log.payment===null));assert.equal(service.advanceAutomaticRenewals(at("2026-03-01")),0);
+});
+
+test("changing a fixed expense's cycle at the next bill boundary preserves old monthly payments", t => {
+  const {db,service,payments,setDay}=setup();t.after(()=>db.close());
+  const first=service.execute(1,{action:"create",item:record({autoRecord:true})}).item!;
+  const old=payments.all(1);
+  service.execute(1,{action:"update",id:first.id,version:first.version,item:{...first,cycle:"yearly",amount:99,startDate:"2026-02-28",endDate:"2027-02-28"}});
+  assert.deepEqual(payments.all(1),old);
+  setDay("2026-02-28");service.advanceAutomaticRenewals(at("2026-02-28"));
+  assert.equal(payments.all(1).length,2);
+  assert.equal(payments.all(1).find(log=>log.newStartDate==="2026-02-28")!.payment!.amount,99);
+  assert.equal(payments.all(1).find(log=>log.newStartDate==="2026-01-31")!.payment!.amount,58);
+});
+
+test("v5 backups preserve non-monthly fixed cycles, bill snapshots and deduplication on restore", t => {
+  const {db,service,payments,backups}=setup();t.after(()=>db.close());
+  for(const [cycle,endDate,customDays] of [["quarterly","2026-04-30",30],["yearly","2027-01-31",30],["custom","2026-02-15",15]] as const) {
+    service.execute(1,{action:"create",item:record({cycle,endDate,customDays,autoRecord:true})});
+  }
+  const backup=backups.export(1);
+  backups.import(2,{backup,mode:"merge",expectedRevision:backups.preview(2,backup).revision});
+  assert.deepEqual(service.list(2).items.map(item=>item.cycle).sort(),["custom","quarterly","yearly"]);
+  assert.deepEqual(payments.all(2),payments.all(1));assert.equal(service.advanceAutomaticRenewals(at("2026-02-01")),0);
+});
+
+test("v11 cycle migration keeps phone relationships, existing bill snapshots, audit children and credentials", t => {
+  const folder=mkdtempSync(join(tmpdir(),"vip-fixed-cycles-")), path=join(folder,"fixture.sqlite");
+  t.after(()=>rmSync(folder,{recursive:true,force:true}));
+  let db=new DatabaseSync(path);
+  for(const name of readdirSync(new URL("../migrations/",import.meta.url)).filter(name=>name.endsWith(".sql")).sort().slice(0,11))db.exec(readFileSync(new URL("../migrations/"+name,import.meta.url),"utf8"));
+  db.exec("PRAGMA user_version=11; INSERT INTO users VALUES(1,'owner','preserved-fixture-hash',0); INSERT INTO sessions VALUES('fixture-session',1,0)");
+  const phoneId=randomUUID();
+  db.prepare("INSERT INTO phone_accounts(user_id,id,label,number,carrier,note,balance_cents,balance_as_of,version,updated_at) VALUES(1,?,'Fixture','13800000000','中国移动','fixture',1000,'2026-02-01',0,0)").run(phoneId);
+  let service=new SubscriptionService(db,"Asia/Shanghai",()=>at("2026-02-01"));
+  service.execute(1,{action:"create",item:record({autoRecord:true})});
+  service.execute(1,{action:"create",item:record({expenseType:"phone",phoneAccountId:phoneId,phoneChargeType:"yearly",cycle:"yearly",endDate:"2027-01-31",autoRecord:true})});
+  service.execute(1,{action:"create",item:record({expenseType:"subscription",startDate:"2025-12-31",endDate:"2026-01-31"})});
+  service.advanceAutomaticRenewals(at("2026-02-01"));
+  assert.throws(()=>service.execute(1,{action:"create",item:record({cycle:"yearly",endDate:"2027-01-31"})}),/CHECK constraint/);
+  const tables=["subscriptions","phone_accounts","subscription_renewal_logs","automatic_renewal_events","users","sessions"];
+  const snapshots=tables.map(table=>db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all());
+  db.close();db=openDatabase(path);
+  try {
+    tables.forEach((table,index)=>assert.deepEqual(db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all(),snapshots[index],table));
+    assert.equal(db.prepare("PRAGMA user_version").get()!.user_version,12);assert.equal(db.prepare("PRAGMA foreign_keys").get()!.foreign_keys,1);
+    assert.deepEqual(db.prepare("PRAGMA foreign_key_check").all(),[]);
+    service=new SubscriptionService(db,"Asia/Shanghai",()=>at("2026-02-01"));
+    assert.equal(service.execute(1,{action:"create",item:record({cycle:"yearly",endDate:"2027-01-31"})}).item!.cycle,"yearly");
+  } finally {db.close();}
 });

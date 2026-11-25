@@ -5,7 +5,7 @@ import { paymentState, type Payment } from "../../shared/payments.ts";
 import { RenewalHistory, renewalFromRow } from "./renewal-history.ts";
 import { dateSchema } from "./validation.ts";
 
-/** Called inside the owner's transaction; bill snapshots never change with the next month's price. */
+/** Called inside the owner's transaction; bill snapshots never change with the next period's price. */
 export class FixedExpenseBills {
   private db: DatabaseSync;
   private history: RenewalHistory;

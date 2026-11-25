@@ -192,7 +192,7 @@ test("v10 migration preserves subscriptions, renewal audit children and credenti
     assert.deepEqual({...db.prepare("SELECT * FROM automatic_renewal_events").get()!},audit);
     assert.equal(db.prepare("SELECT password_hash FROM users").get()!.password_hash,"fixture-hash");
     assert.equal(db.prepare("PRAGMA foreign_keys").get()!.foreign_keys,1);assert.deepEqual(db.prepare("PRAGMA foreign_key_check").all(),[]);
-    db.close();db=openDatabase(path);assert.equal(db.prepare("PRAGMA user_version").get()!.user_version,11);
+    db.close();db=openDatabase(path);assert.equal(db.prepare("PRAGMA user_version").get()!.user_version,12);
   } finally {db.close();}
 });
 

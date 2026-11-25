@@ -74,7 +74,7 @@ entries 每项为 amount、currency、paidOn、startDate、endDate、note；1–
 
 ## 固定支出
 
-expenseType=fixed 仅支持 cycle=monthly，autoRenew 控制是否持续生成账单；autoRecord 控制新账单是否自动记为已支付，必须由用户主动开启。创建或后台扫描时，从所填本期账单日开始逐期生成至当前期；未来账期不会提前生成。每个用户、记录和账期开始日只有一个 fixedBill，重复扫描和重启不重复生成。
+expenseType=fixed 支持 cycle=monthly/quarterly/yearly/custom，autoRenew 控制是否持续生成账单；autoRecord 控制新账单是否自动记为已支付，必须由用户主动开启。创建或后台扫描时，从所填本期账单日开始逐期生成至当前期；未来账期不会提前生成。每个用户、记录和账期开始日只有一个 fixedBill，重复扫描和重启不重复生成。
 
 固定账单保存在同一流水表，kind=automatic、periods=1、前后账期相同，fixedBill 保存当期 category、plan 与 autoRecord 快照。自动付款的 payment.source=fixed，paidOn 为账期开始日，按所登记金额和锁定汇率记账；rateBasisDate 保留登记汇率基准，不会查询并重写历史汇率。缺失汇率时账单保留待确认，不自动冒充付款。以后编辑金额、分类、套餐或自动记账开关不回写旧账单。
 
