@@ -326,8 +326,17 @@
   opacity: 0.9;
 }
 
+.expense-type-filter { display: flex; gap: 8px; margin-top: 22px; flex-wrap: wrap; }
+.expense-type-filter .is-active { border-color: var(--primary); color: var(--primary); }
+.fixed-expense-settings { display: grid; grid-column: 1 / -1; min-width: 0; gap: 10px; padding: 12px; border-radius: 10px; background: var(--secondary); }
+.fixed-expense-settings .switch-field { flex-direction: row; min-width: 0; width: 100%; }
+.fixed-expense-settings .switch-field label { white-space: nowrap; }
+.fixed-expense-settings small, .fixed-expense-caption { font-size: 12px; line-height: 1.7; color: var(--muted-foreground); }
+.fixed-expense-caption { margin: 12px 0; }
+
 @media (max-width: 480px) {
   .payment-entry .form-grid { grid-template-columns: minmax(0, 1fr); }
+  .fixed-expense-form .form-grid { grid-template-columns: minmax(0, 1fr); }
 }
 
 /* Health Multi-Track */

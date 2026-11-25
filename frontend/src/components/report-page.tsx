@@ -25,7 +25,7 @@ export function ReportPage({items,today,revision,onBack,onHistory}:Props) {
     else {setRange("month");setMonth(key);}
   }
   return <section className="report-page spending-page" aria-label="支出分析">
-    <div className="report-heading"><div><p className="report-eyebrow">订阅费用 · 一目了然</p><h2>支出分析</h2><p className="muted">消费仅统计已确认付款，按实际付款日归属月份；续费预算单独展示。</p></div><button className="button light" onClick={onBack}><ArrowLeft size={16}/>返回订阅</button></div>
+    <div className="report-heading"><div><p className="report-eyebrow">订阅费用 · 一目了然</p><h2>支出分析</h2><p className="muted">消费统计已确认付款及主动开启的固定支出自动记账，按付款日归属月份；预算单独展示。</p></div><button className="button light" onClick={onBack}><ArrowLeft size={16}/>返回订阅</button></div>
     {error&&<div role="alert" className="sync-banner">{error}<button className="text-action" onClick={()=>setRetry(n=>n+1)}>重新读取</button></div>}
     <div className="report-kpis payment-kpis">
       <div><span>本月消费金额</span><strong>{ready?money(report.monthTotal):"—"}</strong></div>

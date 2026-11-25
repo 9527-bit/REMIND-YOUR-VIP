@@ -19,7 +19,7 @@
     "build": "npm run build --workspace frontend",
     "typecheck": "tsc -p frontend/tsconfig.json && tsc -p backend/tsconfig.json",
     "test": "node --test backend/tests/*.test.ts",
-    "test:browser": "node scripts/test-browser.mjs && node scripts/test-history-deletion.mjs",
+    "test:browser": "node scripts/test-browser.mjs && node scripts/test-history-deletion.mjs && node scripts/test-fixed-expenses.mjs && node scripts/test-phones.mjs",
     "docs:check": "node scripts/check-docs.mjs",
     "check": "npm run docs:check && npm run typecheck && npm test && npm run build",
     "package": "node scripts/package.mjs"

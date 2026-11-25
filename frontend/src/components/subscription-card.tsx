@@ -2,7 +2,7 @@ import type { CSSProperties } from "react";
 import { CalendarDays, Clock3, Ellipsis, RefreshCw, Wallet, ZapOff } from "lucide-react";
 import { ServiceLogo } from "@/components/service-logo";
 import { Progress } from "@/components/ui/progress";
-import { cycles, periodPercentage, progressColor, remaining, stateOf, type Subscription } from "@/lib/subscriptions";
+import { cycles, isFixedExpense, remindersEnabled, periodPercentage, progressColor, remaining, stateOf, type Subscription } from "@/lib/subscriptions";
 import { CurrencyAmount } from "@/components/currency-amount";
 import { resolveBrandColor } from "@/lib/brand-colors";
 import { useCardSpotlight } from "@/lib/use-card-spotlight";
@@ -21,7 +21,9 @@ type Props = { item: Subscription; today: string; canManage: boolean; onEdit: ()
 export function SubscriptionCard({ item, today, canManage, onEdit }: Props) {
   const { cardRef, onMouseMove, onMouseEnter, onMouseLeave } = useCardSpotlight();
   const days = remaining(item, today);
-  const status = stateOf(item, today);
+  const fixed = isFixedExpense(item);
+  const status = fixed ? "healthy" : stateOf(item, today);
+  const nextBillDate = item.startDate > today ? item.startDate : item.endDate;
   const progress = periodPercentage(item, today);
   const metadata = [item.plan, item.category].filter(Boolean).join(" · ");
 
@@ -29,7 +31,7 @@ export function SubscriptionCard({ item, today, canManage, onEdit }: Props) {
   const brandColor = resolveBrandColor(item.name, item.color);
 
   // Status labels & accessible strings
-  const statusTagLabel = days < 0 ? "已到期" : days === 0 ? "今日到期" : status === "soon" ? "即将到期" : null;
+  const statusTagLabel = fixed ? (item.autoRenew ? "固定支出" : "已暂停") : days < 0 ? "已到期" : days === 0 ? "今日到期" : status === "soon" ? "即将到期" : null;
   const statusDisplay = days < 0 ? `已逾期 ${-days} 天` : days === 0 ? "今日到期" : status === "soon" ? `剩余 ${days} 天` : "正常";
   const periodLabel = item.coverageStartDate ? "总时长剩余" : "本期剩余";
   const progressLabel = `${item.name}：${periodLabel} ${progress}%，${item.coverageStartDate ?? item.startDate} 至 ${item.endDate}，${days < 0 ? `已过期 ${-days} 天` : days === 0 ? "今日到期" : `距到期 ${days} 天`}`;
@@ -97,28 +99,26 @@ export function SubscriptionCard({ item, today, canManage, onEdit }: Props) {
           <span className="telemetry-col card-metric">
             <span className="small-label telemetry-label">
               <Clock3 size={12} />
-              <span>{days < 0 ? "已过期" : "剩余时间"}</span>
+              <span>{fixed ? "每月预算" : days < 0 ? "已过期" : "剩余时间"}</span>
             </span>
             <span className="remaining-number telemetry-value-days">
-              {Math.abs(days)}
-              <span>天</span>
+              {fixed ? <CurrencyAmount amount={item.amount} currency={item.currency} /> : <>{Math.abs(days)}<span>天</span></>}
             </span>
           </span>
 
           <span className="telemetry-col card-metric">
             <span className="small-label telemetry-label">
               <Wallet size={12} />
-              <span>续费金额</span>
+              <span>{fixed ? "账单日" : "续费金额"}</span>
             </span>
             <p className="membership-price telemetry-value-price">
-              <CurrencyAmount amount={item.amount} currency={item.currency} />
-              <small> / {item.cycle === "custom" ? `${item.customDays}天` : cycles[item.cycle].replace("付", "")}</small>
+              {fixed ? <>每月 {item.billingDay ?? Number(item.startDate.slice(8))} 日</> : <><CurrencyAmount amount={item.amount} currency={item.currency} /><small> / {item.cycle === "custom" ? `${item.customDays}天` : cycles[item.cycle].replace("付", "")}</small></>}
             </p>
           </span>
         </div>
 
         {/* 时间进度与刻度 */}
-        <div className="progress-caption">
+        {fixed ? <p className="fixed-expense-caption">{item.autoRenew ? item.autoRecord ? "按登记金额自动记账" : "每月生成待确认账单" : "已暂停生成新账单"} · {remindersEnabled(item) ? "已开启提醒" : "不提醒"}</p> : <><div className="progress-caption">
           {statusTagLabel ? (
             <span className={`card-status ${days <= 0 ? "expired" : "soon"}`}>{statusTagLabel}</span>
           ) : (
@@ -134,14 +134,14 @@ export function SubscriptionCard({ item, today, canManage, onEdit }: Props) {
           title={progressLabel}
           className={`segments${progress === 0 ? " is-empty" : ""}`}
           style={{ "--segment-color": progressColor(progress) } as CSSProperties}
-        />
+        /></>}
 
         {/* 底部仪器时间戳与特征标签 */}
         <div className="membership-expiry geek-card-footer">
           <div className="membership-expiry-date">
             <CalendarDays size={12} />
-            <span>到期日期</span>
-            <time dateTime={item.endDate}>{item.endDate.replaceAll("-", ".")}</time>
+            <span>{fixed ? "下次账单" : "到期日期"}</span>
+            <time dateTime={fixed ? nextBillDate : item.endDate}>{fixed && !item.autoRenew ? "已暂停" : (fixed ? nextBillDate : item.endDate).replaceAll("-", ".")}</time>
           </div>
 
           <span
@@ -151,12 +151,12 @@ export function SubscriptionCard({ item, today, canManage, onEdit }: Props) {
             {item.autoRenew ? (
               <>
                 <RefreshCw size={10} className="spin" />
-                <span>自动续费</span>
+                <span>{fixed ? item.autoRecord ? "自动记账" : "按月生成" : "自动续费"}</span>
               </>
             ) : (
               <>
                 <ZapOff size={10} />
-                <span>手动记录</span>
+                <span>{fixed ? "已暂停" : "手动记录"}</span>
               </>
             )}
           </span>

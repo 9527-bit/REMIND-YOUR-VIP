@@ -58,7 +58,7 @@ test("voids retain payment details, exclude totals and allow corrected backfill;
   assert.equal(paymentReport(payments.all(1),[],"2024-12-01","").total,0);
   assert.throws(()=>backups.import(1,{backup:backups.export(1),mode:"merge",expectedRevision:preview.revision}),{status:409});
   await payments.add(1,{subscriptionId:item.id,entries:[{...entry(),amount:30}]});
-  const backup=backups.export(1);assert.equal(backup.formatVersion,3);
+  const backup=backups.export(1);assert.equal(backup.formatVersion,5);
   backups.import(2,{backup,mode:"merge",expectedRevision:backups.preview(2,backup).revision});
   assert.deepEqual(payments.all(2),payments.all(1));
   assert.equal(paymentReport(payments.all(2),[],"2024-12-01","").total,120);

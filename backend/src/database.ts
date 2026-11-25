@@ -11,14 +11,19 @@ export function openDatabase(filename: string): DatabaseSync {
     db.exec("PRAGMA journal_mode = WAL");
     db.exec("PRAGMA foreign_keys = ON");
     const version = Number(db.prepare("PRAGMA user_version").get()?.user_version);
-    const migrations = ["001_initial.sql", "002_automatic_renewals.sql", "003_subscription_history.sql", "004_multi_currency.sql", "005_purchase_rate_snapshots.sql", "006_email_notifications.sql", "007_subscription_categories.sql", "008_payment_ledger.sql", "009_bark_notifications.sql"];
+    const migrations = ["001_initial.sql", "002_automatic_renewals.sql", "003_subscription_history.sql", "004_multi_currency.sql", "005_purchase_rate_snapshots.sql", "006_email_notifications.sql", "007_subscription_categories.sql", "008_payment_ledger.sql", "009_bark_notifications.sql", "010_fixed_expenses.sql", "011_phone_accounts.sql"];
     if (version > migrations.length) throw new Error("数据库版本高于当前程序，请勿降级运行。");
     for (let index = version; index < migrations.length; index++) {
       const sql = readFileSync(new URL("../migrations/" + migrations[index], import.meta.url), "utf8");
-      transaction(db, () => {
-        db!.exec(sql);
-        db!.exec("PRAGMA user_version = " + (index + 1));
-      });
+      const rebuild = migrations[index] === "011_phone_accounts.sql";
+      if (rebuild) db.exec("PRAGMA foreign_keys = OFF");
+      try {
+        transaction(db, () => {
+          db!.exec(sql);
+          if (rebuild && db!.prepare("PRAGMA foreign_key_check").all().length) throw new Error("迁移后的外键校验失败。");
+          db!.exec("PRAGMA user_version = " + (index + 1));
+        });
+      } finally { if (rebuild) db.exec("PRAGMA foreign_keys = ON"); }
       db.exec("PRAGMA optimize");
     }
     return db;

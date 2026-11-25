@@ -4,7 +4,7 @@ import type { RenewalLog } from "./renewals.ts";
 export type Payment = {
   amount: number; currency: CurrencyCode; paidOn: string; startDate: string; endDate: string;
   rate: number; rateDate: string; rateBasisDate?: string; category: string; plan: string; note: string;
-  source: "backfill" | "renewal"; confirmedAt: string; voidedAt: string | null;
+  source: "backfill" | "renewal" | "fixed"; confirmedAt: string; voidedAt: string | null;
   dateCorrections?: { from: string; to: string; changedAt: string }[];
 };
 export type PaymentInput = Pick<Payment, "amount" | "currency" | "paidOn" | "startDate" | "endDate" | "note">;

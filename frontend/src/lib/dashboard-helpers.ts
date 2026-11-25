@@ -8,6 +8,7 @@ export type MembershipTemplate = {
   color: string;
   cycle: Subscription["cycle"];
   customDays: number;
+  expenseType?: "subscription" | "fixed";
 };
 
 /** Curated presets only provide identity and billing cadence; they never invent a price. */
@@ -17,6 +18,11 @@ export const membershipTemplates: readonly MembershipTemplate[] = [
   { key: "bilibili", name: "哔哩哔哩大会员", plan: "大会员", category: "影音娱乐", color: "#fb7299", cycle: "monthly", customDays: 30 },
   { key: "88vip", name: "淘宝88VIP", plan: "88VIP", category: "购物电商", color: "#ff5000", cycle: "yearly", customDays: 365 },
   { key: "icloud", name: "iCloud+", plan: "iCloud+", category: "云存储", color: "#4f8ee8", cycle: "monthly", customDays: 30 },
+];
+export const fixedExpenseTemplates: readonly MembershipTemplate[] = [
+  { key: "phone", name: "手机话费", plan: "", category: "生活服务", color: "#269979", cycle: "monthly", customDays: 30, expenseType: "fixed" },
+  { key: "internet", name: "家庭宽带", plan: "", category: "生活服务", color: "#497ccd", cycle: "monthly", customDays: 30, expenseType: "fixed" },
+  { key: "rent", name: "房租", plan: "", category: "生活服务", color: "#8a5fc4", cycle: "monthly", customDays: 30, expenseType: "fixed" },
 ];
 
 /** Recalculate a draft date only when automatic linking is still enabled. */

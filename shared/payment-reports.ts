@@ -1,6 +1,6 @@
 import type { RenewalLog } from "./renewals.ts";
 import { paymentCny, paymentState } from "./payments.ts";
-import { monthlyCostCny, type Subscription } from "./subscriptions.ts";
+import { isFixedExpense, monthlyCostCny, type Subscription } from "./subscriptions.ts";
 import { allocatedEntry, entryAmount, reportEntries, type ReportEntry } from "./report-entries.ts";
 
 export type ReportBasis = "cash" | "accrual" | "confirmed";
@@ -46,7 +46,7 @@ export function paymentReport(logs: RenewalLog[], items: Subscription[], today: 
     // Outstanding monthly renewals stay inside this calendar month. Paid bills
     // and next month's renewals must not reappear in the expected bill total.
     const date=item.endDate;
-    if(item.cycle!=="monthly" || item.amount<=0 || date<today || !date.startsWith(today.slice(0,7)))continue;
+    if(isFixedExpense(item) || item.cycle!=="monthly" || item.amount<=0 || date<today || !date.startsWith(today.slice(0,7)))continue;
     if(paid.some(log=>log.subscriptionId===item.id&&log.payment!.startDate<=date&&log.payment!.endDate>date))continue;
     upcoming.push({id:item.id,name:item.name,plan:item.plan,date,amount:item.amount,currency:item.currency,cny:item.ratePending?null:item.amount*(item.fxRateToCny??1)});
   }
@@ -60,5 +60,5 @@ export function paymentReport(logs: RenewalLog[], items: Subscription[], today: 
     recordedYearTotal:bucket(today.slice(0,4)).amount,recordedYearCount:recordedYear.length,recordedYearSubscriptionCount:recordedYear.filter(entry=>entry.source==="subscription").length,
     months,years,categories:group("category"),ranking:group("subscription"),
     upcoming,forecast:upcoming.reduce((n,p)=>n+(p.cny??0),0),forecastPending:upcoming.filter(p=>p.cny===null).length,pending:logs.filter(log=>paymentState(log)==="pending").length,
-    monthly:items.filter(i=>i.endDate>=today).reduce((n,i)=>n+monthlyCostCny(i),0),ratePending:items.filter(i=>i.ratePending).length};
+    monthly:items.filter(i=>i.expenseType==="phone"?i.startDate<=today&&i.endDate>today:i.endDate>=today).reduce((n,i)=>n+monthlyCostCny(i),0),ratePending:items.filter(i=>i.ratePending).length};
 }

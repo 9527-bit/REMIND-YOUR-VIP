@@ -25,6 +25,7 @@ import {
   stateOf,
   monthlyCostCny,
   subscriptionAmountCny,
+  isFixedExpense,
 } from "@/lib/subscriptions";
 import { formatCurrency } from "../../../shared/currency.ts";
 import { ServiceLogo } from "@/components/service-logo";
@@ -81,15 +82,16 @@ export function GlobalAnalyticsDashboard({
 
   // 1. 基础健康与活跃度统计
   const { active, counts, next30DaysDue, next30DaysTotal, next30DaysPending } = useMemo(() => {
-    const act = items.filter((i) => remaining(i, today) >= 0);
+    const act = items.filter((i) => i.expenseType === "phone" ? i.phoneChargeType !== "once" && i.startDate <= today && i.endDate > today : remaining(i, today) >= 0);
     const cnts = { healthy: 0, soon: 0, expired: 0 };
-    for (const item of items) {
+    for (const item of items.filter(item => !isFixedExpense(item))) {
       cnts[stateOf(item, today)]++;
     }
 
     // 未来30天内需要续费的项目与总需资金
     const dueSoon = items
       .filter((i) => {
+        if (isFixedExpense(i)) return false;
         const days = remaining(i, today);
         return days >= 0 && days <= 30;
       })
@@ -197,7 +199,7 @@ export function GlobalAnalyticsDashboard({
 
   // 3. 近期到期时间线列表
   const timelineItems = useMemo(() => {
-    return [...items]
+    return items.filter(item => !isFixedExpense(item))
       .sort((a, b) => {
         const da = remaining(a, today);
         const db = remaining(b, today);
@@ -223,7 +225,7 @@ export function GlobalAnalyticsDashboard({
             <span>智能开销大盘</span>
           </div>
           <span className="analytics-header-sub">
-            实时汇总 {items.length} 项会员资产 · 监控现金流与到期脉络
+            实时汇总 {items.length} 项支出记录 · 监控现金流与到期脉络
           </span>
         </div>
 
@@ -318,17 +320,17 @@ export function GlobalAnalyticsDashboard({
               </div>
               <div className="health-multi-track">
                 <span
-                  style={{ width: `${(counts.healthy / Math.max(1, items.length)) * 100}%` }}
+                  style={{ width: `${(counts.healthy / Math.max(1, counts.healthy + counts.soon + counts.expired)) * 100}%` }}
                   className="track-segment healthy"
                   title={`正常活跃: ${counts.healthy} 项`}
                 />
                 <span
-                  style={{ width: `${(counts.soon / Math.max(1, items.length)) * 100}%` }}
+                  style={{ width: `${(counts.soon / Math.max(1, counts.healthy + counts.soon + counts.expired)) * 100}%` }}
                   className="track-segment soon"
                   title={`即将到期: ${counts.soon} 项`}
                 />
                 <span
-                  style={{ width: `${(counts.expired / Math.max(1, items.length)) * 100}%` }}
+                  style={{ width: `${(counts.expired / Math.max(1, counts.healthy + counts.soon + counts.expired)) * 100}%` }}
                   className="track-segment expired"
                   title={`已过期: ${counts.expired} 项`}
                 />

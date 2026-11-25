@@ -47,7 +47,7 @@ test("currency snapshots survive editing, new periods, undo and JSON v3", t => {
   const latest = service.list(1).items[0];
   assert.equal(latest.purchaseDate, latest.startDate); assert.equal(latest.ratePending,true); assert.equal(latest.fxRateToCny, 8);
   assert.equal(history.list(1).logs.find(log => log.id === renewed.renewal!.id)!.fxRateToCny, fx.fxRateToCny);
-  const backup = backups.export(1); assert.equal(backup.formatVersion, 3);
+  const backup = backups.export(1); assert.equal(backup.formatVersion, 5);
   backups.import(1, { backup, mode: "replace", confirmReplace: true, expectedRevision: backups.preview(1, backup).revision });
   assert.equal(service.list(1).items[0].amount, 20); assert.equal(service.list(1).items[0].fxRateToCny, 8);
   assert.equal(history.list(1).total, 2);
@@ -83,7 +83,7 @@ test("deployed v4 migration preserves original AUD/CNY amounts, dates, user hash
     assert.equal(item.purchaseDate,"2026-09-20"); assert.equal(item.fxRateDate,"2026-09-18");
     assert.equal(db.prepare("SELECT amount_cents FROM subscriptions").get()!.amount_cents,11922);
     assert.equal(db.prepare("SELECT password_hash FROM users").get()!.password_hash,"hash-must-stay");
-    assert.equal(db.prepare("PRAGMA user_version").get()!.user_version,9);
+    assert.equal(db.prepare("PRAGMA user_version").get()!.user_version,11);
     assert.equal(db.prepare("PRAGMA integrity_check").get()!.integrity_check,"ok");
   } finally { db.close(); }
 });

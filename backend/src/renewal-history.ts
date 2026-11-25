@@ -19,6 +19,7 @@ export function renewalFromRow(row: Row): RenewalLog {
     undoneAt: row.undone_at === null ? null : new Date(Number(row.undone_at)).toISOString(),
     payment: row.payment_json ? JSON.parse(String(row.payment_json)) : null,
     previousRatePending: Boolean(row.previous_rate_pending),
+    fixedBill: row.fixed_bill_json ? JSON.parse(String(row.fixed_bill_json)) : null,
   };
 }
 

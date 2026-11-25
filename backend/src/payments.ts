@@ -15,7 +15,7 @@ const amount = z.number().finite().min(0).max(10_000_000).refine(n => Math.abs(n
 const fields = { amount, currency: z.enum(currencyCodes), paidOn: dateSchema, startDate: dateSchema, endDate: dateSchema, note: z.string().trim().max(500) };
 export const paymentInputSchema = z.object(fields).strict().refine(p => p.endDate > p.startDate, "到期日期必须晚于开始日期。");
 export const paymentSchema = z.object({ ...fields, rate: z.number().finite().positive().max(100_000), rateDate: dateSchema, rateBasisDate: dateSchema.optional(),
-  category: z.enum(categories), plan: z.string().max(80), source: z.enum(["backfill", "renewal"]),
+  category: z.enum(categories), plan: z.string().max(80), source: z.enum(["backfill", "renewal", "fixed"]),
   confirmedAt: z.string().datetime(), voidedAt: z.string().datetime().nullable(),
   dateCorrections: z.array(z.object({from:dateSchema,to:dateSchema,changedAt:z.string().datetime()}).strict()).max(100).optional(),
 }).strict().refine(p => p.endDate > p.startDate && p.rateDate <= (p.rateBasisDate ?? p.startDate) && (p.currency !== "CNY" || p.rate === 1), "支付账期或汇率不正确。")
@@ -91,7 +91,7 @@ export class PaymentService {
       if (paymentState(current) !== "pending" || JSON.stringify(current) !== JSON.stringify(before)) throw new ApiError(409,"流水已变化，请刷新后重试。");
       if (this.duplicate(owner,current.subscriptionId,input.entry.startDate,input.entry.endDate,input.id)) throw new ApiError(409,"该账期已有流水，请先核对，避免重复统计。");
       const sub = this.db.prepare("SELECT * FROM subscriptions WHERE user_id=? AND id=?").get(owner,current.subscriptionId);
-      const payment: Payment = {...input.entry,rate:fx.rate,rateDate:fx.rateDate,rateBasisDate:input.entry.paidOn,category:(sub?.category ?? "其他服务") as Payment["category"],plan:String(sub?.plan ?? ""),source:"renewal",confirmedAt:this.clock().toISOString(),voidedAt:null};
+      const payment: Payment = {...input.entry,rate:fx.rate,rateDate:fx.rateDate,rateBasisDate:input.entry.paidOn,category:(current.fixedBill?.category ?? sub?.category ?? "其他服务") as Payment["category"],plan:current.fixedBill?.plan ?? String(sub?.plan ?? ""),source:"renewal",confirmedAt:this.clock().toISOString(),voidedAt:null};
       this.db.prepare("UPDATE subscription_renewal_logs SET payment_json=?,undo_until=NULL WHERE user_id=? AND id=?").run(JSON.stringify(payment),owner,input.id);
       return {log:renewalFromRow(history.get(owner,input.id))};
     });

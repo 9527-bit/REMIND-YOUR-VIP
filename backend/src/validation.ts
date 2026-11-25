@@ -42,6 +42,12 @@ export function migrateLegacyCurrency(value: unknown): unknown {
     fxRateToCny: billingCurrency === "CNY" ? 1 : exchangeRate, fxRateDate: rateDate, fxRateSource: "manual" };
 }
 export const subscriptionObject = z.object({
+  expenseType: z.enum(["subscription", "fixed", "phone"]).optional(),
+  phoneAccountId: idSchema.optional(),
+  phoneChargeType: z.enum(["monthly", "yearly", "once"]).optional(),
+  reminderEnabled: z.boolean().optional(),
+  autoRecord: z.boolean().optional(),
+  billingDay: z.number().int().min(1).max(31).optional(),
   ratePending: z.boolean().optional(),
   coverageStartDate: dateSchema.optional(),
   id: idSchema,
@@ -61,8 +67,17 @@ export const subscriptionObject = z.object({
   version: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER - 1).optional(),
 }).strict();
 export const validPeriod = (item: { startDate: string; endDate: string }) => item.endDate > item.startDate;
+export const validExpenseSettings = (item: { expenseType?: string; autoRecord?: boolean; cycle: string; phoneAccountId?: string; phoneChargeType?: string; customDays?: number; autoRenew?: boolean; reminderEnabled?: boolean }) => {
+  if (item.autoRecord && item.expenseType !== "fixed" && item.expenseType !== "phone") return false;
+  if (item.expenseType === "fixed" && item.cycle !== "monthly") return false;
+  if (item.expenseType !== "phone") return !item.phoneAccountId && !item.phoneChargeType;
+  if (!item.phoneAccountId || !item.phoneChargeType) return false;
+  if (item.phoneChargeType === "once") return item.cycle === "custom" && item.customDays === 1 && !item.autoRenew && !item.reminderEnabled;
+  return item.cycle === item.phoneChargeType;
+};
 export const subscriptionSchema = z.preprocess(migrateLegacyCurrency, subscriptionObject.refine(validPeriod, "到期日期必须晚于开始日期。")
-  .refine(validCurrency, "请填写购买日期和有效的历史/实际结算汇率；人民币汇率必须为 1。"));
+  .refine(validCurrency, "请填写购买日期和有效的历史/实际结算汇率；人民币汇率必须为 1。")
+  .refine(validExpenseSettings, "请检查费用类型和周期；一次性费用不能持续生成或开启提醒。"));
 export const actionSchema = z.object({
   action: z.enum(["create","update","delete","renew","undoRenew","initialize"]),
   id: idSchema.optional(),

@@ -1,6 +1,6 @@
 import type { DatabaseSync, SQLInputValue } from "node:sqlite";
 import { randomUUID } from "node:crypto";
-import { renewDate, type Subscription } from "../../shared/subscriptions.ts";
+import { isFixedExpense, remindersEnabled, renewDate, type Subscription } from "../../shared/subscriptions.ts";
 import { automaticPeriod, billingAnchor, dateInTimeZone } from "../../shared/billing.ts";
 import { actionSchema, dateSchema, subscriptionSchema } from "./validation.ts";
 import { ApiError } from "./errors.ts";
@@ -8,10 +8,16 @@ import { transaction } from "./database.ts";
 import { RenewalHistory, renewalFromRow } from "./renewal-history.ts";
 import type { RenewalLog } from "../../shared/renewals.ts";
 import { ExchangeRates } from "./exchange-rates.ts";
+import { FixedExpenseBills } from "./fixed-expenses.ts";
 
 type Row = Record<string, unknown>;
 export function subscriptionFromRow(row: Row): Subscription {
   return {
+    expenseType: row.expense_type === "phone" ? "phone" : row.expense_type === "fixed" ? "fixed" : "subscription",
+    ...(row.phone_account_id ? { phoneAccountId: String(row.phone_account_id), phoneChargeType: row.phone_charge_type as Subscription["phoneChargeType"] } : {}),
+    reminderEnabled: row.reminder_enabled === undefined ? true : Boolean(row.reminder_enabled),
+    autoRecord: Boolean(row.auto_record),
+    ...(row.expense_type === "fixed" ? { billingDay: Number(String(row.renewal_anchor_date || row.start_date).slice(8,10)) } : {}),
     ratePending: Boolean(row.rate_pending),
     id: String(row.id), name: String(row.name), plan: String(row.plan), category: String(row.category),
     amount: Number(row.original_amount_cents) / 100, cycle: row.cycle as Subscription["cycle"], customDays: Number(row.custom_days),
@@ -26,7 +32,7 @@ export function subscriptionFromRow(row: Row): Subscription {
 }
 function values(item: Subscription): SQLInputValue[] {
   return [item.name,item.plan,item.category,Math.round(item.amount*(item.fxRateToCny ?? 1)*100),item.cycle,item.customDays,item.startDate,
-    item.endDate,item.reminderDays,Number(item.autoRenew),item.note,item.color,item.currency ?? "CNY",item.purchaseDate ?? item.startDate,item.fxRateToCny ?? 1,item.fxRateDate ?? item.purchaseDate ?? item.startDate,item.fxRateSource ?? "manual",Math.round(item.amount*100)];
+    item.endDate,item.reminderDays,Number(item.autoRenew),item.note,item.color,item.currency ?? "CNY",item.purchaseDate ?? item.startDate,item.fxRateToCny ?? 1,item.fxRateDate ?? item.purchaseDate ?? item.startDate,item.fxRateSource ?? "manual",Math.round(item.amount*100),item.expenseType ?? "subscription",Number(remindersEnabled(item)),Number(Boolean(item.autoRecord))];
 }
 
 /** User-scoped storage and authoritative renewals; UI and server share date arithmetic. */
@@ -36,8 +42,10 @@ export class SubscriptionService {
   private timeZone: string;
   private history: RenewalHistory;
   private clock: () => Date;
+  private fixedBills: FixedExpenseBills;
   constructor(db: DatabaseSync, timeZone: string, clock: () => Date = () => new Date(), rates = new ExchangeRates(fetch, timeZone, clock)) {
     this.rates = rates;
+    this.fixedBills = new FixedExpenseBills(db);
     this.db=db; this.timeZone=timeZone; this.history=new RenewalHistory(db); this.clock=clock;
   }
 
@@ -50,8 +58,8 @@ export class SubscriptionService {
   /** Read only the single administrator's display fields; never select private notes or real versions. */
   listPublic(): Subscription[] {
     const rows = this.db.prepare(`SELECT id,name,plan,category,amount_cents,original_amount_cents,cycle,custom_days,start_date,end_date,
-      reminder_days,auto_renew,color,'' AS note,0 AS version,currency,purchase_date,fx_rate_to_cny,fx_rate_date,fx_rate_source,rate_pending FROM subscriptions
-      WHERE user_id=(SELECT id FROM users ORDER BY id LIMIT 1) ORDER BY end_date,id`).all();
+      reminder_days,auto_renew,color,'' AS note,0 AS version,currency,purchase_date,fx_rate_to_cny,fx_rate_date,fx_rate_source,rate_pending,expense_type,reminder_enabled,auto_record,renewal_anchor_date FROM subscriptions
+      WHERE user_id=(SELECT id FROM users ORDER BY id LIMIT 1) AND expense_type<>'phone' ORDER BY end_date,id`).all();
     const owner = Number(this.db.prepare("SELECT id FROM users ORDER BY id LIMIT 1").get()?.id);
     return this.withCoverage(owner, rows.map(subscriptionFromRow));
   }
@@ -60,6 +68,7 @@ export class SubscriptionService {
   private withCoverage(owner: number, items: Subscription[]): Subscription[] {
     const logs = this.db.prepare("SELECT * FROM subscription_renewal_logs WHERE user_id=? AND undone_at IS NULL ORDER BY created_at DESC").all(owner).map(renewalFromRow);
     return items.map(item => {
+      if (isFixedExpense(item)) return item;
       let start = item.startDate, end = item.endDate;
       const chain = logs.filter(log => log.subscriptionId === item.id && log.payment?.source !== "backfill" &&
         log.previousStartDate < log.newStartDate && log.previousEndDate === log.newStartDate &&
@@ -89,11 +98,15 @@ export class SubscriptionService {
   advanceAutomaticRenewals(now = new Date()): number {
     const today = dateSchema.parse(dateInTimeZone(now, this.timeZone));
     return transaction(this.db, () => {
-      const rows = this.db.prepare("SELECT * FROM subscriptions WHERE auto_renew=1 AND end_date<=? ORDER BY user_id,id").all(today);
+      const rows = this.db.prepare("SELECT * FROM subscriptions WHERE (auto_renew=1 AND (end_date<=? OR (expense_type IN ('fixed','phone') AND start_date<=?))) OR (expense_type='phone' AND start_date<=?) ORDER BY user_id,id").all(today,today,today);
       let changed = 0;
       for (const row of rows) {
         const item = subscriptionFromRow(row);
         const anchor = String(row.renewal_anchor_date) || billingAnchor(item);
+        if (isFixedExpense(item)) {
+          if (this.advanceFixed(Number(row.user_id),item,anchor,now)) changed++;
+          continue;
+        }
         const next = automaticPeriod(item, anchor, today);
         if (!next) continue;
         dateSchema.parse(next.startDate);
@@ -124,14 +137,16 @@ export class SubscriptionService {
       const raw = input.item && typeof input.item === "object" ? input.item as Record<string, unknown> : {};
       const item = subscriptionSchema.parse({ ...raw, id: raw.id || randomUUID() }) as Subscription;
       return transaction(this.db, () => {
+        this.validatePhone(owner, item);
         if (this.db.prepare("SELECT id FROM subscriptions WHERE user_id=? AND id=?").get(owner,item.id)) {
           throw new ApiError(409,"这条记录已经存在，请刷新确认，避免重复保存。");
         }
         this.db.prepare(`INSERT INTO subscriptions(user_id,id,name,plan,category,amount_cents,cycle,custom_days,start_date,end_date,
-          reminder_days,auto_renew,note,color,currency,purchase_date,fx_rate_to_cny,fx_rate_date,fx_rate_source,original_amount_cents,version,updated_at,renewal_anchor_date) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,?)`)
-          .run(owner,item.id,...values(item),Date.now(),billingAnchor(item));
+          reminder_days,auto_renew,note,color,currency,purchase_date,fx_rate_to_cny,fx_rate_date,fx_rate_source,original_amount_cents,expense_type,reminder_enabled,auto_record,version,updated_at,renewal_anchor_date,phone_account_id,phone_charge_type) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,?,?,?)`)
+          .run(owner,item.id,...values(item),Date.now(),billingAnchor(item),item.phoneAccountId ?? null,item.phoneChargeType ?? null);
         this.initialize(owner);
         this.db.prepare("UPDATE subscriptions SET rate_pending=? WHERE user_id=? AND id=?").run(Number(Boolean(item.ratePending)),owner,item.id);
+        if (isFixedExpense(item) && (item.autoRenew || item.expenseType === "phone")) this.advanceFixed(owner,this.get(owner,item.id),billingAnchor(item),this.clock());
         return { item: this.get(owner,item.id) };
       });
     }
@@ -148,6 +163,7 @@ export class SubscriptionService {
         }
       }
       if (item.version !== input.version) throw new ApiError(409,"记录已在其他页面修改，请刷新后再试。","VERSION_CONFLICT");
+      if (isFixedExpense(item) && input.action === "renew") throw new ApiError(400,"固定支出按账单日生成记录，请在流水确认付款。","FIXED_EXPENSE_RENEWAL");
       if (input.action === "undoRenew") {
         if (!input.logId) throw new ApiError(400,"缺少续费流水标识。");
         const log = this.history.get(owner,input.logId);
@@ -173,17 +189,31 @@ export class SubscriptionService {
       }
       if (input.action === "update") {
         let changed = subscriptionSchema.parse(input.item) as Subscription;
+        this.validatePhone(owner, changed);
+        if (item.phoneAccountId !== changed.phoneAccountId && item.phoneAccountId) throw new ApiError(400,"费用所属号码不能直接更换，请新增费用项目。");
+        if (item.phoneChargeType && item.phoneChargeType !== changed.phoneChargeType) throw new ApiError(400,"变更费用周期请新增费用项目，已有账单会保留。");
         if (changed.id !== item.id) throw new ApiError(400,"记录标识不一致。");
         // A form opened before the scheduler filled its rate must not discard that completed snapshot.
         if (changed.ratePending && !item.ratePending && changed.currency === item.currency && changed.purchaseDate === item.purchaseDate) {
           changed = { ...changed, fxRateToCny: item.fxRateToCny, fxRateDate: item.fxRateDate, fxRateSource: item.fxRateSource, ratePending: false };
         }
+        let resumeAnchor: string | undefined;
+        if (isFixedExpense(item) && isFixedExpense(changed) && !item.autoRenew && changed.autoRenew && changed.startDate === item.startDate && changed.endDate === item.endDate) {
+          const today = dateInTimeZone(this.clock(),this.timeZone);
+          resumeAnchor = String(this.db.prepare("SELECT renewal_anchor_date FROM subscriptions WHERE user_id=? AND id=?").get(owner,item.id)?.renewal_anchor_date) || billingAnchor(item);
+          const resumed = automaticPeriod(changed,resumeAnchor,today);
+          if (resumed) changed = { ...changed, startDate:resumed.startDate, endDate:resumed.endDate };
+        }
         const scheduleChanged = changed.startDate !== item.startDate || changed.endDate !== item.endDate || changed.cycle !== item.cycle || changed.customDays !== item.customDays;
         this.db.prepare(`UPDATE subscriptions SET name=?,plan=?,category=?,amount_cents=?,cycle=?,custom_days=?,start_date=?,
-          end_date=?,reminder_days=?,auto_renew=?,note=?,color=?,currency=?,purchase_date=?,fx_rate_to_cny=?,fx_rate_date=?,fx_rate_source=?,original_amount_cents=?,version=version+1,updated_at=? WHERE user_id=? AND id=? AND version=?`)
-          .run(...values(changed),Date.now(),owner,item.id,item.version);
-        if (scheduleChanged) this.db.prepare("UPDATE subscriptions SET renewal_anchor_date=? WHERE user_id=? AND id=?").run(billingAnchor(changed),owner,item.id);
+          end_date=?,reminder_days=?,auto_renew=?,note=?,color=?,currency=?,purchase_date=?,fx_rate_to_cny=?,fx_rate_date=?,fx_rate_source=?,original_amount_cents=?,expense_type=?,reminder_enabled=?,auto_record=?,phone_account_id=?,phone_charge_type=?,version=version+1,updated_at=? WHERE user_id=? AND id=? AND version=?`)
+          .run(...values(changed),changed.phoneAccountId ?? null,changed.phoneChargeType ?? null,Date.now(),owner,item.id,item.version);
+        if (scheduleChanged) this.db.prepare("UPDATE subscriptions SET renewal_anchor_date=? WHERE user_id=? AND id=?").run(resumeAnchor ?? billingAnchor(changed),owner,item.id);
         this.db.prepare("UPDATE subscriptions SET rate_pending=? WHERE user_id=? AND id=?").run(Number(Boolean(changed.ratePending)),owner,item.id);
+        if (isFixedExpense(changed) && (changed.autoRenew || changed.expenseType === "phone")) {
+          const anchor = String(this.db.prepare("SELECT renewal_anchor_date FROM subscriptions WHERE user_id=? AND id=?").get(owner,item.id)?.renewal_anchor_date) || billingAnchor(changed);
+          this.advanceFixed(owner,this.get(owner,item.id),anchor,this.clock());
+        }
       } else if (input.action === "renew") {
         const now = this.clock();
         const today = dateInTimeZone(now, this.timeZone);
@@ -203,8 +233,23 @@ export class SubscriptionService {
     });
   }
 
+  private advanceFixed(owner: number, item: Subscription, anchor: string, now: Date): boolean {
+    const next = this.fixedBills.generate(owner,item,anchor,dateInTimeZone(now,this.timeZone),now);
+    if (next.periods) this.db.prepare("UPDATE subscriptions SET start_date=?,end_date=?,version=version+1,updated_at=? WHERE user_id=? AND id=? AND version=?")
+      .run(next.startDate,next.endDate,now.getTime(),owner,item.id,item.version);
+    return next.added > 0 || next.periods > 0;
+  }
+
   private initialize(owner: number): void {
     this.db.prepare("INSERT INTO subscription_preferences(user_id,initialized) VALUES(?,1) ON CONFLICT(user_id) DO UPDATE SET initialized=1").run(owner);
+  }
+
+  private validatePhone(owner: number, item: Subscription): void {
+    if (item.expenseType !== "phone") return;
+    if (!item.plan.trim()) throw new ApiError(400,"请填写费用名称。");
+    if (!this.db.prepare("SELECT id FROM phone_accounts WHERE user_id=? AND id=?").get(owner,item.phoneAccountId!)) throw new ApiError(404,"所属号码不存在，请先添加号码。","NOT_FOUND");
+    if (item.currency !== "CNY") throw new ApiError(400,"手机费用目前使用人民币记录。");
+    if (item.phoneChargeType === "once" && item.endDate !== renewDate(item.startDate,"custom",1)) throw new ApiError(400,"一次性费用只记录发生当天。");
   }
 
   private get(owner: number, id: string): Subscription {

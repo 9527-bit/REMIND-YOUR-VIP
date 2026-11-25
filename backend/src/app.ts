@@ -13,6 +13,7 @@ import { ExchangeRates } from "./exchange-rates.ts";
 import { PaymentService } from "./payments.ts";
 import { dateInTimeZone } from "../../shared/billing.ts";
 import { PASSWORD_MAX_LENGTH } from "./password-policy.ts";
+import { PhoneAccounts } from "./phones.ts";
 import type { EmailNotificationService, NotificationManager } from "./notifications.ts";
 import type { BarkStatus, EmailStatus, NotificationStatus } from "../../shared/notifications.ts";
 
@@ -35,6 +36,7 @@ export function createApp(db: DatabaseSync, config: Config, notifications?: Noti
   const subscriptions = new SubscriptionService(db, config.timeZone, clock, rates);
   const history = new RenewalHistory(db);
   const backups = new BackupService(db);
+  const phones = new PhoneAccounts(db);
   const payments = new PaymentService(db, rates, config.timeZone, clock);
   const cookieOptions = { httpOnly: true, sameSite: "lax" as const, secure: config.cookieSecure, path: "/" };
   app.disable("x-powered-by");
@@ -106,7 +108,7 @@ export function createApp(db: DatabaseSync, config: Config, notifications?: Noti
     const calendar = { today: dateInTimeZone(clock(), config.timeZone), timeZone: config.timeZone };
     const user = auth.session(tokenFromCookie(req.get("Cookie")));
     if (user) {
-      res.json({ items: subscriptions.list(user.id).items, canManage: true, publicDashboard: config.publicDashboard, ...calendar });
+      res.json({ items: subscriptions.list(user.id).items, phoneAccounts: phones.list(user.id), canManage: true, publicDashboard: config.publicDashboard, ...calendar });
       return;
     }
     if (!config.publicDashboard) throw new ApiError(401,"请先登录自己的管理员账号。","AUTH_REQUIRED");
@@ -167,6 +169,8 @@ export function createApp(db: DatabaseSync, config: Config, notifications?: Noti
   });
   app.get("/api/exchange-rate", async (req,res) => res.json(await rates.lookup(req.query)));
   app.get("/api/subscriptions", (_req,res) => res.json(subscriptions.list(res.locals.user.id)));
+  app.get("/api/phones", (_req,res) => res.json({ items: phones.list(res.locals.user.id) }));
+  app.post("/api/phones", (req,res) => res.status(req.body?.action === "create" ? 201 : 200).json(phones.execute(res.locals.user.id,req.body)));
   app.get("/api/payments", (_req,res) => res.json({logs:payments.all(res.locals.user.id)}));
   app.post("/api/payments/preview", async (req,res) => res.json(await payments.preview(res.locals.user.id,req.body)));
   app.post("/api/payments/backfill", async (req,res) => res.json(await payments.add(res.locals.user.id,req.body)));

@@ -226,7 +226,7 @@ try {
   await page.getByRole("button",{name:"下载当前备份",exact:true}).click();
   const download=await downloadPromise;
   const backup=JSON.parse(await readFile(await download.path(),"utf8"));
-  assert.equal(backup.formatVersion,3);
+  assert.equal(backup.formatVersion,5);
   assert.equal(backup.subscriptions.find(item=>item.name==="ChatGPT Plus").fxRateToCny,7.2352);
   assert.equal(backup.subscriptions.length,6);assert.equal(backup.renewalLogs.length,2);
   assert.equal("users" in backup,false);

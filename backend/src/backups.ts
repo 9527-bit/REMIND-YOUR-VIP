@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
-import { currencyFields, dateSchema, idSchema, subscriptionObject, validCurrency, validPeriod, migrateLegacyCurrency } from "./validation.ts";
+import { currencyFields, dateSchema, idSchema, subscriptionObject, validCurrency, validPeriod, validExpenseSettings, migrateLegacyCurrency } from "./validation.ts";
 import { transaction } from "./database.ts";
 import { ApiError } from "./errors.ts";
 import { subscriptionFromRow } from "./subscriptions.ts";
@@ -9,6 +9,8 @@ import { renewalFromRow } from "./renewal-history.ts";
 import type { BackupDocument, ImportPreview } from "../../shared/renewals.ts";
 import { billingAnchor, cycleBoundary } from "../../shared/billing.ts";
 import { paymentSchema } from "./payments.ts";
+import { categories, remindersEnabled } from "../../shared/subscriptions.ts";
+import { PhoneAccounts, phoneAccountSchema } from "./phones.ts";
 
 const timestamp = z.string().datetime({ offset: true });
 const renewalSchema = z.object({
@@ -18,13 +20,18 @@ const renewalSchema = z.object({
   createdAt: timestamp, undoneAt: timestamp.nullable(),
   payment: paymentSchema.nullable().optional(),
   previousRatePending: z.boolean().optional(),
+  fixedBill: z.object({ category: z.enum(categories), plan: z.string().max(80), autoRecord: z.boolean() }).strict().nullable().optional(),
 }).strict().refine(validCurrency, "流水汇率数据不完整。").refine(log => log.previousEndDate > log.previousStartDate && log.newEndDate > log.newStartDate, "流水账期不正确。")
+  .refine(log => !log.fixedBill || (log.kind === "automatic" && log.periods === 1 && log.amount !== null && !log.undoneAt && log.previousStartDate === log.newStartDate && log.previousEndDate === log.newEndDate), "固定支出账单快照不正确。")
+  .refine(log => log.payment?.source !== "fixed" || Boolean(log.fixedBill), "自动记账缺少固定支出账单。")
   .refine(log => log.undoneAt === null || (log.kind === "manual" && Date.parse(log.undoneAt) >= Date.parse(log.createdAt)), "撤销时间不正确。")
   .refine(log => log.amount === null || (Number.isSafeInteger(Math.round(log.amount * 100)) && Number(log.amount.toFixed(2)) === log.amount), "流水金额超出范围或超过两位小数。");
 
 export const backupSchema = z.object({
-  application: z.literal("vip-manager"), formatVersion: z.union([z.literal(1), z.literal(2), z.literal(3)]), exportedAt: timestamp, currency: z.literal("CNY"),
+  application: z.literal("vip-manager"), formatVersion: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5)]), exportedAt: timestamp, currency: z.literal("CNY"),
+  phoneAccounts: z.array(phoneAccountSchema).max(200).default([]),
   subscriptions: z.array(z.preprocess(migrateLegacyCurrency, subscriptionObject.extend({ renewalAnchorDate: dateSchema }).refine(validCurrency, "订阅汇率数据不完整。").refine(validPeriod, "到期日期必须晚于开始日期。")
+    .refine(validExpenseSettings, "费用类型与周期不一致。")
     .refine(item => {
       if (item.renewalAnchorDate > item.endDate) return false;
       if (item.cycle === "custom") return true;
@@ -37,6 +44,12 @@ export const backupSchema = z.object({
   for (const [name, records] of [["subscriptions", backup.subscriptions], ["renewalLogs", backup.renewalLogs]] as const) {
     if (new Set(records.map(record => record.id)).size !== records.length) ctx.addIssue({ code: "custom", message: `${name} 包含重复标识。` });
   }
+  const bills = backup.renewalLogs.filter(log => log.fixedBill).map(log => `${log.subscriptionId}:${log.newStartDate}`);
+  if (new Set(bills).size !== bills.length) ctx.addIssue({ code: "custom", message: "固定支出包含重复账期。" });
+  const phones = new Set(backup.phoneAccounts.map(phone => phone.id));
+  if (phones.size !== backup.phoneAccounts.length || new Set(backup.phoneAccounts.map(phone => phone.number)).size !== phones.size) ctx.addIssue({ code: "custom", message: "号码备份包含重复号码或标识。" });
+  if (backup.formatVersion !== 5 && (phones.size || backup.subscriptions.some(item => item.expenseType === "phone"))) ctx.addIssue({ code: "custom", message: "手机号码数据需要 v5 备份格式。" });
+  if (backup.subscriptions.some(item => item.expenseType === "phone" && (!phones.has(item.phoneAccountId!) || item.currency !== "CNY" || (item.phoneChargeType === "once" && cycleBoundary(item.startDate,"custom",1,1) !== item.endDate)))) ctx.addIssue({ code: "custom", message: "号码费用缺少所属号码或账期不正确。" });
 });
 export const importSchema = z.object({
   backup: backupSchema, mode: z.enum(["merge", "replace"]), expectedRevision: z.string().regex(/^[a-f0-9]{64}$/),
@@ -50,7 +63,8 @@ export class BackupService {
 
   export(owner: number): BackupDocument {
     return {
-      application: "vip-manager", formatVersion: 3, exportedAt: new Date().toISOString(), currency: "CNY",
+      application: "vip-manager", formatVersion: 5, exportedAt: new Date().toISOString(), currency: "CNY",
+      phoneAccounts: new PhoneAccounts(this.db).list(owner),
       subscriptions: this.db.prepare("SELECT * FROM subscriptions WHERE user_id=? ORDER BY id").all(owner)
         .map(row => ({ ...subscriptionFromRow(row), renewalAnchorDate: String(row.renewal_anchor_date) || billingAnchor(subscriptionFromRow(row)) })),
       renewalLogs: this.db.prepare("SELECT * FROM subscription_renewal_logs WHERE user_id=? ORDER BY id").all(owner).map(renewalFromRow),
@@ -61,17 +75,21 @@ export class BackupService {
   private revision(owner: number): string {
     const subscriptions = this.db.prepare("SELECT * FROM subscriptions WHERE user_id=? ORDER BY id").all(owner);
     const logs = this.db.prepare("SELECT * FROM subscription_renewal_logs WHERE user_id=? ORDER BY id").all(owner);
-    return createHash("sha256").update(JSON.stringify({ subscriptions, logs })).digest("hex");
+    const phones = this.db.prepare("SELECT * FROM phone_accounts WHERE user_id=? ORDER BY id").all(owner);
+    return createHash("sha256").update(JSON.stringify({ subscriptions, logs, phones })).digest("hex");
   }
 
   preview(owner: number, value: unknown): ImportPreview {
     const backup = backupSchema.parse(value);
     const currentIds = new Set(this.db.prepare("SELECT id FROM subscriptions WHERE user_id=?").all(owner).map(row => String(row.id)));
     const logIds = new Set(this.db.prepare("SELECT id FROM subscription_renewal_logs WHERE user_id=?").all(owner).map(row => String(row.id)));
+    const billPeriods = new Set(this.db.prepare("SELECT subscription_id,new_start_date FROM subscription_renewal_logs WHERE user_id=? AND fixed_bill_json IS NOT NULL").all(owner).map(row => `${row.subscription_id}:${row.new_start_date}`));
     const skippedSubscriptions = backup.subscriptions.filter(item => currentIds.has(item.id)).length;
+    const phones = new PhoneAccounts(this.db).list(owner);
     return { revision: this.revision(owner), subscriptions: backup.subscriptions.length, logs: backup.renewalLogs.length,
+      phoneAccounts: backup.phoneAccounts.length, newPhoneAccounts: backup.phoneAccounts.filter(phone => !phones.some(current => current.id === phone.id)).length,
       existing: currentIds.size, newSubscriptions: backup.subscriptions.length - skippedSubscriptions, skippedSubscriptions,
-      newLogs: backup.renewalLogs.filter(log => !logIds.has(log.id)).length };
+      newLogs: backup.renewalLogs.filter(log => !logIds.has(log.id) && (!log.fixedBill || !billPeriods.has(`${log.subscriptionId}:${log.newStartDate}`))).length };
   }
 
   /** Validate completely before mutation, then import atomically; merge never overwrites an existing ID. */
@@ -81,9 +99,23 @@ export class BackupService {
     return transaction(this.db, () => {
       if (this.revision(owner) !== input.expectedRevision) throw new ApiError(409,"预览后数据已有变化，请重新预览导入文件。","VERSION_CONFLICT");
       const versions = new Map(this.db.prepare("SELECT id,version FROM subscriptions WHERE user_id=?").all(owner).map(row => [String(row.id),Number(row.version)]));
+      const phoneVersions = new Map(new PhoneAccounts(this.db).list(owner).map(phone => [phone.id,phone.version]));
       if (input.mode === "replace") {
         this.db.prepare("DELETE FROM subscription_renewal_logs WHERE user_id=?").run(owner);
         this.db.prepare("DELETE FROM subscriptions WHERE user_id=?").run(owner);
+        this.db.prepare("DELETE FROM phone_accounts WHERE user_id=?").run(owner);
+      }
+      for (const phone of input.backup.phoneAccounts) {
+        if (input.mode === "merge" && phoneVersions.has(phone.id)) {
+          const current = this.db.prepare("SELECT number FROM phone_accounts WHERE user_id=? AND id=?").get(owner,phone.id)!;
+          if (current.number !== phone.number) throw new ApiError(409,"同一号码标识对应不同手机号码，请核对备份。","PHONE_EXISTS");
+          continue;
+        }
+        if (this.db.prepare("SELECT id FROM phone_accounts WHERE user_id=? AND number=?").get(owner,phone.number)) throw new ApiError(409,"备份中的号码已使用另一标识存在，请核对后再导入。","PHONE_EXISTS");
+        const version = Math.max(phoneVersions.get(phone.id) ?? -1,phone.version) + 1;
+        if (!Number.isSafeInteger(version)) throw new ApiError(400,"号码版本超出安全范围。");
+        this.db.prepare("INSERT INTO phone_accounts(user_id,id,label,number,carrier,note,balance_cents,balance_as_of,version,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)")
+          .run(owner,phone.id,phone.label,phone.number,phone.carrier,phone.note,phone.balance === null ? null : Math.round(phone.balance * 100),phone.balanceAsOf,version,Date.now());
       }
       let importedSubscriptions = 0, importedLogs = 0, skippedSubscriptions = 0;
       for (const item of input.backup.subscriptions) {
@@ -96,8 +128,11 @@ export class BackupService {
             item.endDate,item.reminderDays,Number(item.autoRenew),item.note,item.color,item.currency ?? "CNY",item.purchaseDate ?? item.startDate,item.fxRateToCny ?? 1,item.fxRateDate ?? item.purchaseDate ?? item.startDate,item.fxRateSource ?? "manual",Math.round(item.amount*100),version,Date.now(),item.renewalAnchorDate);
         importedSubscriptions++;
         this.db.prepare("UPDATE subscriptions SET rate_pending=? WHERE user_id=? AND id=?").run(Number(Boolean(item.ratePending)),owner,item.id);
+        this.db.prepare("UPDATE subscriptions SET expense_type=?,reminder_enabled=?,auto_record=?,phone_account_id=?,phone_charge_type=? WHERE user_id=? AND id=?")
+          .run(item.expenseType ?? "subscription",Number(remindersEnabled(item)),Number(Boolean(item.autoRecord)),item.phoneAccountId ?? null,item.phoneChargeType ?? null,owner,item.id);
       }
       for (const log of input.backup.renewalLogs) {
+        if (input.mode === "merge" && log.fixedBill && this.db.prepare("SELECT id FROM subscription_renewal_logs WHERE user_id=? AND subscription_id=? AND new_start_date=? AND fixed_bill_json IS NOT NULL").get(owner,log.subscriptionId,log.newStartDate)) continue;
         const result = this.db.prepare(`INSERT INTO subscription_renewal_logs(user_id,id,subscription_id,subscription_name,kind,
           previous_start_date,previous_end_date,new_start_date,new_end_date,previous_anchor_date,new_anchor_date,amount_cents,currency,purchase_date,fx_rate_to_cny,fx_rate_date,fx_rate_source,periods,created_at,undone_at)
           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(user_id,id) DO NOTHING`)
@@ -107,6 +142,7 @@ export class BackupService {
         importedLogs += Number(result.changes);
         if (Number(result.changes) && log.payment) this.db.prepare("UPDATE subscription_renewal_logs SET payment_json=? WHERE user_id=? AND id=?").run(JSON.stringify(log.payment),owner,log.id);
         if (Number(result.changes) && log.previousRatePending) this.db.prepare("UPDATE subscription_renewal_logs SET previous_rate_pending=1 WHERE user_id=? AND id=?").run(owner,log.id);
+        if (Number(result.changes) && log.fixedBill) this.db.prepare("UPDATE subscription_renewal_logs SET fixed_bill_json=? WHERE user_id=? AND id=?").run(JSON.stringify(log.fixedBill),owner,log.id);
       }
       this.db.prepare("INSERT INTO subscription_preferences(user_id,initialized) VALUES(?,1) ON CONFLICT(user_id) DO UPDATE SET initialized=1").run(owner);
       return { importedSubscriptions, importedLogs, skippedSubscriptions };

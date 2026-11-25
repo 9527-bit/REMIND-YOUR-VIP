@@ -13,11 +13,11 @@ import { Toaster } from "@/components/ui/sonner";
 import { LoginDialog } from "@/components/login-dialog";
 import { apiRequest, ApiError } from "@/lib/api";
 import { toast } from "sonner";
-import { categories, cycles, monthlyCostCny, remaining, renewDate, occupiedCategories, shiftDate, stateOf, type Subscription, type DashboardSnapshot } from "@/lib/subscriptions";
+import { categories, cycles, isFixedExpense, remindersEnabled, monthlyCostCny, remaining, renewDate, occupiedCategories, shiftDate, stateOf, type Subscription, type DashboardSnapshot } from "@/lib/subscriptions";
 import { dateInTimeZone } from "../../../shared/billing.ts";
 import { formatCurrency, money } from "../../../shared/currency.ts";
 import type { RenewalResult } from "../../../shared/renewals.ts";
-import { linkedEndDate, updateDraftPeriod, membershipTemplates, requestId, type MembershipTemplate } from "@/lib/dashboard-helpers";
+import { linkedEndDate, updateDraftPeriod, membershipTemplates, fixedExpenseTemplates, requestId, type MembershipTemplate } from "@/lib/dashboard-helpers";
 import { HistoryDialog } from "@/components/history-dialog";
 import { BackupDialog } from "@/components/backup-dialog";
 import { SubscriptionRow } from "@/components/subscription-row";
@@ -28,7 +28,9 @@ import { CompactDialogHeader, ContextHelp } from "@/components/context-help";
 import { EmailReminders } from "@/components/email-reminders";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { AmbientRain } from "@/components/ambient-rain";
+import type { PhoneAccount } from "../../../shared/phones.ts";
 
+const PhoneAccountsPanel = lazy(() => import("@/components/phone-accounts").then(module => ({ default: module.PhoneAccountsPanel })));
 const ReportPage = lazy(() => import("@/components/report-page").then(module => ({ default: module.ReportPage })));
 
 const categoryIcons = { "影音娱乐": Music2, "购物电商": ShoppingBag, "AI 工具": Sparkles, "云存储": Cloud, "办公效率": BriefcaseBusiness, "设计与创作": Palette, "云服务与网络": Globe, "生活服务": Coffee, "游戏会员": Gamepad2, "学习教育": GraduationCap, "其他服务": LayoutGrid };
@@ -43,6 +45,7 @@ function blankDraft(today: string): Draft {
     id: "", name: "", plan: "", category: "其他服务", amount: "0", cycle: "monthly", customDays: "30",
     startDate: today, endDate: renewDate(today, "monthly", 30), reminderDays: "7", autoRenew: false, note: "", color: "#269979", version: 0,
     currency: "CNY", purchaseDate: today, fxRateToCny: "1", fxRateDate: today, fxRateSource: "manual",
+    expenseType: "subscription", reminderEnabled: true, autoRecord: false,
   };
 }
 
@@ -56,16 +59,17 @@ function escapeIcs(value: string) {
   return value.replaceAll("\\", "\\\\").replaceAll(";", "\\;").replaceAll(",", "\\,").replaceAll("\n", "\\n");
 }
 
-function downloadCalendar(item: Subscription) {
-  const start = item.endDate.replaceAll("-", "");
-  const nextDay = shiftDate(item.endDate, 1).replaceAll("-", "");
+function downloadCalendar(item: Subscription, today: string) {
+  const eventDate = isFixedExpense(item) && item.startDate > today ? item.startDate : item.endDate;
+  const start = eventDate.replaceAll("-", "");
+  const nextDay = shiftDate(eventDate, 1).replaceAll("-", "");
   const trigger = item.reminderDays > 0 ? `-P${item.reminderDays}D` : "-PT0M";
   const ics = [
     "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Gx404//Memberships//CN", "CALSCALE:GREGORIAN", "BEGIN:VEVENT",
     `UID:${item.id}@gx404-memberships`, `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z")}`,
-    `DTSTART;VALUE=DATE:${start}`, `DTEND;VALUE=DATE:${nextDay}`, `SUMMARY:${escapeIcs(`${item.name} 到期`)}`,
+    `DTSTART;VALUE=DATE:${start}`, `DTEND;VALUE=DATE:${nextDay}`, `SUMMARY:${escapeIcs(`${item.name} ${isFixedExpense(item) ? "账单" : "到期"}`)}`,
     `DESCRIPTION:${escapeIcs(`${item.plan || "会员订阅"} · ${money(item.amount, item.currency)} · 续费方式：${item.autoRenew ? "自动续费" : "手动续费"}`)}`,
-    "BEGIN:VALARM", `TRIGGER:${trigger}`, "ACTION:DISPLAY", `DESCRIPTION:${escapeIcs(`${item.name} 即将到期`)}`, "END:VALARM",
+    ...(remindersEnabled(item) ? ["BEGIN:VALARM", `TRIGGER:${trigger}`, "ACTION:DISPLAY", `DESCRIPTION:${escapeIcs(`${item.name} 即将到期`)}`, "END:VALARM"] : []),
     "END:VEVENT", "END:VCALENDAR",
   ].join("\r\n");
   const blob = new Blob([ics], { type: "text/calendar;charset=utf-8" });
@@ -75,7 +79,7 @@ function downloadCalendar(item: Subscription) {
   link.download = `${item.name}-到期提醒.ics`;
   link.click();
   URL.revokeObjectURL(url);
-  toast.success("日历文件已生成", { description: "导入日历后由系统负责提醒；续费后请重新导出一次。" });
+  toast.success("日历文件已生成", { description: remindersEnabled(item) ? "导入日历后由系统负责提醒；账期变化后请重新导出。" : "文件未设置闹钟；如已导入过旧提醒，请在日历中更新。" });
 }
 
 export default function Dashboard() {
@@ -83,6 +87,10 @@ export default function Dashboard() {
   const timeZoneRef = useRef(timeZone);
   const [today, setToday] = useState(() => dateInTimeZone(new Date(), timeZone));
   const [items, setItems] = useState<Subscription[]>([]);
+  const [phoneAccounts, setPhoneAccounts] = useState<PhoneAccount[]>([]);
+  const [phoneTarget, setPhoneTarget] = useState<Subscription | null>(null);
+  const [phoneEditing, setPhoneEditing] = useState(false);
+  const clearPhoneTarget = useCallback(() => setPhoneTarget(null), []);
   const [publicDashboard, setPublicDashboard] = useState(false);
   const requestSequence = useRef(0);
   const [loading, setLoading] = useState(true);
@@ -90,6 +98,7 @@ export default function Dashboard() {
   const [loginOpen, setLoginOpen] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [category, setCategory] = useState("全部");
+  const [expenseFilter, setExpenseFilter] = useState("all");
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState("expiry");
   const [showReminders, setShowReminders] = useState(false);
@@ -123,6 +132,7 @@ export default function Dashboard() {
     setReportOpen(false); setShowReminders(false); setShowCostBreakdown(false);
     setEditorOpen(false); setHistoryOpen(false); setBackupOpen(false); setConfirmAction(null);
     setSelected(null); setHistoryItem(null); setDraft(blankDraft(dateInTimeZone(new Date(), timeZoneRef.current))); setUndoReceipts({});
+    setPhoneAccounts([]); setPhoneTarget(null);
   }, [authRequired]);
 
   useEffect(() => {
@@ -151,6 +161,7 @@ export default function Dashboard() {
       setPublicDashboard(payload.publicDashboard);
       setSyncError(null);
       setItems(payload.items);
+      setPhoneAccounts(payload.canManage ? payload.phoneAccounts ?? [] : []);
       setCategory(current => current === "全部" || payload.items.some(item => item.category === current) ? current : "全部");
     } catch (error) {
       if (sequence !== requestSequence.current) return;
@@ -159,6 +170,7 @@ export default function Dashboard() {
         return;
       }
       setItems([]);
+      setPhoneAccounts([]);
       setAuthRequired(true);
       setPublicDashboard(false);
       setSelected(null);
@@ -178,7 +190,7 @@ export default function Dashboard() {
   useEffect(() => {
     // Do not overwrite an open editor or create avoidable optimistic-lock conflicts while typing.
     const refresh = () => {
-      if (document.visibilityState === "visible" && !editorOpen && !loginOpen && !saving && !confirmAction) {
+      if (document.visibilityState === "visible" && !editorOpen && !phoneEditing && !loginOpen && !saving && !confirmAction) {
         setToday(dateInTimeZone(new Date(), timeZoneRef.current));
         void loadRecords(true);
       }
@@ -186,7 +198,7 @@ export default function Dashboard() {
     const timer = window.setInterval(refresh, 60_000);
     document.addEventListener("visibilitychange", refresh);
     return () => { window.clearInterval(timer); document.removeEventListener("visibilitychange", refresh); };
-  }, [editorOpen, loginOpen, saving, confirmAction, loadRecords]);
+  }, [editorOpen, phoneEditing, loginOpen, saving, confirmAction, loadRecords]);
 
   useEffect(() => {
     type Tool = { name: string; title: string; description: string; inputSchema: object; annotations: { readOnlyHint: boolean; untrustedContentHint: boolean }; execute: (input: unknown) => unknown };
@@ -235,17 +247,21 @@ export default function Dashboard() {
     return () => lifecycle.abort();
   }, [authRequired, items, today]);
 
-  const visibleCategories = occupiedCategories(items);
-  const active = items.filter(i => remaining(i, today) >= 0);
-  const due = items.filter(i => stateOf(i, today) !== "healthy").sort((a, b) => a.endDate.localeCompare(b.endDate));
+  const regularItems = items.filter(item => item.expenseType !== "phone");
+  const visibleCategories = occupiedCategories(regularItems);
+  const active = items.filter(i => i.expenseType === "phone" ? i.phoneChargeType !== "once" && i.startDate <= today && i.endDate > today : remaining(i, today) >= 0);
+  const due = items.filter(i => remindersEnabled(i) && stateOf(i, today) !== "healthy").sort((a, b) => a.endDate.localeCompare(b.endDate));
   const monthly = active.reduce((sum, item) => sum + monthlyCostCny(item), 0);
   const filtered = useMemo(() => items.filter(i =>
+    i.expenseType !== "phone" &&
+    (expenseFilter === "all" || (i.expenseType ?? "subscription") === expenseFilter) &&
     (category === "全部" || i.category === category) &&
     `${i.name} ${i.plan} ${i.note}`.toLowerCase().includes(query.toLowerCase()),
-  ).sort((a, b) => sort === "price" ? monthlyCostCny(b) - monthlyCostCny(a) : sort === "name" ? a.name.localeCompare(b.name, "zh-CN") : a.endDate.localeCompare(b.endDate)), [items, category, query, sort, today]);
+  ).sort((a, b) => sort === "price" ? monthlyCostCny(b) - monthlyCostCny(a) : sort === "name" ? a.name.localeCompare(b.name, "zh-CN") : a.endDate.localeCompare(b.endDate)), [items, category, query, sort, today, expenseFilter]);
 
   function edit(item: Subscription | null = null) {
     if (authRequired) { setLoginOpen(true); return; }
+    if (item?.expenseType === "phone") { setExpenseFilter("phone"); setPhoneTarget(item); return; }
     setSelected(item);
     setDraft(item ? toDraft(item) : blankDraft(today));
     setDateLinked(!item || linkedEndDate(item.startDate,item.cycle,item.customDays) === item.endDate);
@@ -298,6 +314,13 @@ export default function Dashboard() {
   }
 
   function changeDraft(field: keyof Draft, value: string | boolean) {
+    if (field === "expenseType") {
+      setDraft(current => ({ ...current, expenseType: value as Draft["expenseType"], cycle: value === "fixed" ? "monthly" : current.cycle,
+        endDate: value === "fixed" ? linkedEndDate(current.startDate,"monthly",30) ?? current.endDate : current.endDate,
+        autoRenew: value === "fixed", reminderEnabled: value !== "fixed", autoRecord: false }));
+      setDateLinked(true); setPeriodPrompt(null);
+      return;
+    }
     setDraft(current => {
       const next = updateDraftPeriod(current, { [field]: value } as Partial<Draft>, dateLinked);
       return field === "startDate" && !selected && current.purchaseDate === current.startDate
@@ -314,7 +337,7 @@ export default function Dashboard() {
   function applyTemplate(template: MembershipTemplate) {
     setDraft(current => {
       const end = dateLinked ? linkedEndDate(current.startDate, template.cycle, template.customDays) : current.endDate;
-      return { ...current, name: template.name, plan: template.plan, category: template.category, color: template.color, cycle: template.cycle, customDays: String(template.customDays), ...(end ? { endDate: end } : {}) };
+      return { ...current, name: template.name, plan: template.plan, category: template.category, color: template.color, cycle: template.cycle, customDays: String(template.customDays), ...(template.expenseType === "fixed" ? {expenseType:"fixed" as const,autoRenew:true,reminderEnabled:false,autoRecord:false} : {}), ...(end ? { endDate: end } : {}) };
     });
   }
 
@@ -424,32 +447,35 @@ export default function Dashboard() {
         onOpenCostsBreakdown={() => setShowCostBreakdown(true)}
       />
 
-      <div className="section-toolbar"><div className="section-caption"><span className="live-dot" /><span>我的订阅</span><span className="muted">{items.length} 项</span></div><div className="toolbar-actions"><label className="search"><Search size={15} /><input aria-label="搜索订阅" placeholder="搜索订阅…" value={query} onChange={e => setQuery(e.target.value)} /></label><Select value={sort} onValueChange={setSort}><SelectTrigger className="sort-control" aria-label="排序方式"><SlidersHorizontal size={15} /><SelectValue /></SelectTrigger><SelectContent><SelectItem value="expiry">到期时间</SelectItem><SelectItem value="price">月均费用从高到低</SelectItem><SelectItem value="name">名称排序</SelectItem></SelectContent></Select><div className="view-toggle" role="group" aria-label="视图切换"><button className={viewMode === "grid" ? "active" : ""} aria-pressed={viewMode === "grid"} title="卡片视图" onClick={() => { setViewMode("grid"); try { localStorage.setItem("membership-view", "grid"); } catch { /* storage can be unavailable */ } }}><LayoutGrid size={15} /></button><button className={viewMode === "list" ? "active" : ""} aria-pressed={viewMode === "list"} title="紧凑列表视图" onClick={() => { setViewMode("list"); try { localStorage.setItem("membership-view", "list"); } catch { /* storage can be unavailable */ } }}><List size={15} /></button></div></div></div>
-      <Tabs value={category} onValueChange={setCategory} className="category-tabs"><TabsList className="category-list" aria-label="会员分类"><TabsTrigger value="全部"><LayoutGrid />全部<span>{items.length}</span></TabsTrigger>{visibleCategories.map(({ category: c, count }) => { const Icon = categoryIcons[c]; return <TabsTrigger key={c} value={c}><Icon />{c}<span>{count}</span></TabsTrigger>; })}</TabsList></Tabs>
+      <div className="expense-type-filter" role="group" aria-label="记录范围">{[["all","全部记录"],["subscription","会员订阅"],["fixed","固定支出"],...(!authRequired ? [["phone","手机话费"]] : [])].map(([value,label]) => <button key={value} className={`button light${expenseFilter === value ? " is-active" : ""}`} aria-pressed={expenseFilter === value} onClick={() => setExpenseFilter(value)}>{label}</button>)}</div>
+      {!authRequired && (expenseFilter === "all" || expenseFilter === "phone") && <Suspense fallback={<p role="status">正在读取号码管理…</p>}><PhoneAccountsPanel accounts={phoneAccounts} items={items} today={today} query={query} onQueryChange={setQuery} showEmpty={expenseFilter === "phone"} target={phoneTarget} onTargetHandled={clearPhoneTarget} onChanged={() => loadRecords(true)} onHistory={item => { setHistoryItem(item); setHistoryOpen(true); }} onEditingChange={setPhoneEditing} /></Suspense>}
+      {expenseFilter !== "phone" && <><div className="section-toolbar"><div className="section-caption"><span className="live-dot" /><span>我的订阅</span><span className="muted">{regularItems.length} 项</span></div><div className="toolbar-actions"><label className="search"><Search size={15} /><input aria-label="搜索订阅" placeholder="搜索订阅…" value={query} onChange={e => setQuery(e.target.value)} /></label><Select value={sort} onValueChange={setSort}><SelectTrigger className="sort-control" aria-label="排序方式"><SlidersHorizontal size={15} /><SelectValue /></SelectTrigger><SelectContent><SelectItem value="expiry">到期时间</SelectItem><SelectItem value="price">月均费用从高到低</SelectItem><SelectItem value="name">名称排序</SelectItem></SelectContent></Select><div className="view-toggle" role="group" aria-label="视图切换"><button className={viewMode === "grid" ? "active" : ""} aria-pressed={viewMode === "grid"} title="卡片视图" onClick={() => { setViewMode("grid"); try { localStorage.setItem("membership-view", "grid"); } catch { /* storage can be unavailable */ } }}><LayoutGrid size={15} /></button><button className={viewMode === "list" ? "active" : ""} aria-pressed={viewMode === "list"} title="紧凑列表视图" onClick={() => { setViewMode("list"); try { localStorage.setItem("membership-view", "list"); } catch { /* storage can be unavailable */ } }}><List size={15} /></button></div></div></div>
+      <Tabs value={category} onValueChange={setCategory} className="category-tabs"><TabsList className="category-list" aria-label="会员分类"><TabsTrigger value="全部"><LayoutGrid />全部<span>{regularItems.length}</span></TabsTrigger>{visibleCategories.map(({ category: c, count }) => { const Icon = categoryIcons[c]; return <TabsTrigger key={c} value={c}><Icon />{c}<span>{count}</span></TabsTrigger>; })}</TabsList></Tabs>
 
       <section className={`subscription-grid ${viewMode === "list" ? "compact-view" : ""}`} aria-label="会员列表">
         {loading && <div className="loading-state"><span className="loading-pulse" />正在读取你的会员清单…</div>}
         {!loading && filtered.map(item => viewMode === "list"
           ? <SubscriptionRow key={item.id} item={item} today={today} canManage={!authRequired} onEdit={() => edit(item)} />
           : <SubscriptionCard key={item.id} item={item} today={today} canManage={!authRequired} onEdit={() => edit(item)} />)}
-        {!loading && !syncError && filtered.length === 0 && <div className="empty-state"><LayoutGrid size={32} /><h2>{items.length ? "没有找到符合条件的订阅" : authRequired ? publicDashboard ? "还没有会员记录" : "登录查看你的会员" : "把你的第一个会员加进来"}</h2><button className="button primary" onClick={() => items.length ? (setCategory("全部"), setQuery("")) : edit()}>{items.length ? "清除筛选" : authRequired ? "管理员登录" : "添加订阅"}</button></div>}
-      </section>
+        {!loading && !syncError && filtered.length === 0 && (expenseFilter !== "all" || phoneAccounts.length === 0) && <div className="empty-state"><LayoutGrid size={32} /><h2>{items.length ? "没有找到符合条件的订阅" : authRequired ? publicDashboard ? "还没有会员记录" : "登录查看你的会员" : "把你的第一个会员加进来"}</h2><button className="button primary" onClick={() => items.length ? (setCategory("全部"), setQuery(""), setExpenseFilter("all")) : edit()}>{items.length ? "清除筛选" : authRequired ? "管理员登录" : "添加订阅"}</button></div>}
+      </section></>}
       </>}
       <footer className="page-footer"><time dateTime={clock.toISOString()}>{footerTime}</time></footer>
     </main>
 
-    <Dialog open={!authRequired && editorOpen} onOpenChange={setEditorOpen}><DialogContent className="membership-dialog"><CompactDialogHeader title={selected ? `管理 ${selected.name}` : "添加订阅"} helpLabel="会员设置说明" help="填写会员名称、费用和到期时间。这里只记录信息，不会操作服务商账号或扣款。私人备注仅登录后可见，请勿保存密码。" /><form className="membership-form" onSubmit={event => { event.preventDefault(); void saveDraft(); }}>
-      {!selected && <div className="template-picker"><span>常用模板</span><div>{membershipTemplates.map(template => <button type="button" key={template.key} className="template-chip" onClick={() => applyTemplate(template)}>{template.name}</button>)}</div></div>}
-      <div className="form-grid"><label className="form-field wide"><span>会员名称 *</span><input autoFocus required maxLength={60} value={draft.name} onChange={e => changeDraft("name", e.target.value)} placeholder="例如：Netflix" /></label><label className="form-field"><span>套餐名称</span><input maxLength={80} value={draft.plan} onChange={e => changeDraft("plan", e.target.value)} placeholder="例如：标准会员" /></label><label className="form-field"><span>分类</span><select aria-label="分类" value={draft.category} onChange={e => changeDraft("category", e.target.value)}>{categories.map(c => <option key={c}>{c}</option>)}</select></label><label className="form-field"><span>费用 *</span><input required min="0" step="0.01" type="number" value={draft.amount} onChange={e => changeDraft("amount", e.target.value)} /></label><CurrencyFields value={draft} startDate={draft.startDate} onChange={patch => setDraft(current => ({ ...current, ...patch }))} /><label className="form-field"><span>续费周期</span><select aria-label="续费周期" value={draft.cycle} onChange={e => changeDraft("cycle", e.target.value as Draft["cycle"])}>{Object.entries(cycles).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>{draft.cycle === "custom" && <label className="form-field"><span>自定义天数</span><input min="1" max="3650" type="number" value={draft.customDays} onChange={e => changeDraft("customDays", e.target.value)} /></label>}<label className="form-field"><span>本期开始日期 *</span><input required type="date" value={draft.startDate} onChange={e => changeDraft("startDate", e.target.value)} /></label><label className="form-field"><span>本期到期日期 *</span><input required type="date" value={draft.endDate} onChange={e => changeDraft("endDate", e.target.value)} /></label><label className="form-field"><span>提前提醒</span><select aria-label="提前提醒" value={draft.reminderDays} onChange={e => changeDraft("reminderDays", e.target.value)}><option value="0">到期当天</option><option value="1">提前 1 天</option><option value="3">提前 3 天</option><option value="7">提前 7 天</option><option value="14">提前 14 天</option><option value="30">提前 30 天</option></select></label><div className="switch-field"><Switch id="auto-renew-toggle" aria-label="自动续费" checked={draft.autoRenew} onCheckedChange={checked => changeDraft("autoRenew", checked)} /><span className="field-label-with-help"><label htmlFor="auto-renew-toggle">自动续费</label><ContextHelp label="自动续费说明">到期日自动更新下一期，关掉网页也生效。只更新看板、不实际扣款；停订或扣款失败时请关闭。</ContextHelp></span></div><label className="form-field wide"><span>私人备注</span><textarea maxLength={500} value={draft.note} onChange={e => changeDraft("note", e.target.value)} placeholder="填写备注" /></label></div>
-      {selected && !selected.autoRenew && <div className="renewal-action"><div><div className="field-label-with-help"><strong>记录下一期续费</strong><ContextHelp label="快捷续费说明">按已保存的周期顺延一次，只改记录、不实际扣款；30 秒内可撤销。</ContextHelp></div>{draftChanged && <small role="status">请先保存或取消表单修改。</small>}</div><button type="button" className="button light" disabled={saving || draftChanged || quickRenewing.has(selected.id) || Boolean(undoReceipts[selected.id])} onClick={() => void quickRenew(selected)}><Check size={16} />快捷续费</button></div>}
+    <Dialog open={!authRequired && editorOpen} onOpenChange={setEditorOpen}><DialogContent className="membership-dialog"><CompactDialogHeader title={selected ? `管理 ${selected.name}` : "添加订阅"} helpLabel="会员设置说明" help="填写会员名称、费用和到期时间。这里只记录信息，不会操作服务商账号或扣款。私人备注仅登录后可见，请勿保存密码。" /><form className={`membership-form${isFixedExpense(draft) ? " fixed-expense-form" : ""}`} onSubmit={event => { event.preventDefault(); void saveDraft(); }}>
+      <label className="form-field"><span>记录类型</span><select aria-label="记录类型" value={draft.expenseType ?? "subscription"} onChange={event => changeDraft("expenseType", event.target.value)}><option value="subscription">会员订阅</option><option value="fixed">固定支出</option></select></label>
+      {!selected && <div className="template-picker"><span>常用模板</span><div>{(isFixedExpense(draft) ? fixedExpenseTemplates : membershipTemplates).map(template => <button type="button" key={template.key} className="template-chip" onClick={() => applyTemplate(template)}>{template.name}</button>)}</div></div>}
+      <div className="form-grid"><label className="form-field wide"><span>{isFixedExpense(draft) ? "支出名称 *" : "会员名称 *"}</span><input autoFocus required maxLength={60} value={draft.name} onChange={e => changeDraft("name", e.target.value)} placeholder="例如：Netflix" /></label><label className="form-field"><span>套餐名称</span><input maxLength={80} value={draft.plan} onChange={e => changeDraft("plan", e.target.value)} placeholder="例如：标准会员" /></label><label className="form-field"><span>分类</span><select aria-label="分类" value={draft.category} onChange={e => changeDraft("category", e.target.value)}>{categories.map(c => <option key={c}>{c}</option>)}</select></label><label className="form-field"><span>费用 *</span><input required min="0" step="0.01" type="number" value={draft.amount} onChange={e => changeDraft("amount", e.target.value)} /></label><CurrencyFields value={draft} startDate={draft.startDate} onChange={patch => setDraft(current => ({ ...current, ...patch }))} /><label className="form-field"><span>{isFixedExpense(draft) ? "记账周期" : "续费周期"}</span><select aria-label="续费周期" disabled={isFixedExpense(draft)} value={draft.cycle} onChange={e => changeDraft("cycle", e.target.value as Draft["cycle"])}>{Object.entries(cycles).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>{draft.cycle === "custom" && <label className="form-field"><span>自定义天数</span><input min="1" max="3650" type="number" value={draft.customDays} onChange={e => changeDraft("customDays", e.target.value)} /></label>}<label className="form-field"><span>{isFixedExpense(draft) ? "本期账单日 *" : "本期开始日期 *"}</span><input required type="date" value={draft.startDate} onChange={e => changeDraft("startDate", e.target.value)} /></label><label className="form-field"><span>{isFixedExpense(draft) ? "下次账单日 *" : "本期到期日期 *"}</span><input required type="date" value={draft.endDate} onChange={e => changeDraft("endDate", e.target.value)} /></label><div className="switch-field"><Switch id="reminder-toggle" aria-label="开启提醒" checked={remindersEnabled(draft)} onCheckedChange={checked => changeDraft("reminderEnabled",checked)} /><label htmlFor="reminder-toggle">开启提醒</label></div><label className="form-field"><span>提前提醒</span><select aria-label="提前提醒" disabled={!remindersEnabled(draft)} value={draft.reminderDays} onChange={e => changeDraft("reminderDays", e.target.value)}><option value="0">到期当天</option><option value="1">提前 1 天</option><option value="3">提前 3 天</option><option value="7">提前 7 天</option><option value="14">提前 14 天</option><option value="30">提前 30 天</option></select></label><div className="switch-field"><Switch id="auto-renew-toggle" aria-label={isFixedExpense(draft) ? "持续生成账单" : "自动续费"} checked={draft.autoRenew} onCheckedChange={checked => changeDraft("autoRenew", checked)} /><span className="field-label-with-help"><label htmlFor="auto-renew-toggle">{isFixedExpense(draft) ? "持续生成账单" : "自动续费"}</label><ContextHelp label="自动续费说明">{isFixedExpense(draft) ? "每月账单日生成一笔记录。关闭后停止生成新账单，已生成记录保留。" : "到期日自动更新下一期，关掉网页也生效。只更新看板、不实际扣款；停订或扣款失败时请关闭。"}</ContextHelp></span></div>{isFixedExpense(draft) && <div className="fixed-expense-settings wide"><div className="switch-field"><Switch id="auto-record-toggle" aria-label="自动记账" checked={Boolean(draft.autoRecord)} onCheckedChange={checked => changeDraft("autoRecord",checked)} /><label htmlFor="auto-record-toggle">自动记账</label></div><small>{draft.autoRecord ? "新生成的账单按登记金额和汇率视为已付，计入消费并标注自动记账；不核实服务商扣款。" : "每月生成待确认账单，确认付款后计入消费。"} 已有账单金额保持不变。关闭提醒后，邮件、Bark 和提醒中心均不提示。</small></div>}<label className="form-field wide"><span>私人备注</span><textarea maxLength={500} value={draft.note} onChange={e => changeDraft("note", e.target.value)} placeholder="填写备注" /></label></div>
+      {selected && !isFixedExpense(selected) && !selected.autoRenew && <div className="renewal-action"><div><div className="field-label-with-help"><strong>记录下一期续费</strong><ContextHelp label="快捷续费说明">按已保存的周期顺延一次，只改记录、不实际扣款；30 秒内可撤销。</ContextHelp></div>{draftChanged && <small role="status">请先保存或取消表单修改。</small>}</div><button type="button" className="button light" disabled={saving || draftChanged || quickRenewing.has(selected.id) || Boolean(undoReceipts[selected.id])} onClick={() => void quickRenew(selected)}><Check size={16} />快捷续费</button></div>}
       {periodPrompt && <div className="period-prompt" role="status"><span>到期日曾手动调整，是否改为 {periodPrompt}？</span><button type="button" className="button light" onClick={suggestEndDate}>重新计算</button><button type="button" className="text-action" onClick={()=>setPeriodPrompt(null)}>保留原日期</button></div>}
-      <div className="dialog-actions"><div className="dialog-left-actions">{selected && <button type="button" className="text-danger" onClick={() => setConfirmAction({ kind: "delete", item: selected })}><Trash2 size={15} />删除</button>}{selected && <button type="button" className="text-action" onClick={() => void downloadCalendar(selected)}><Download size={15} />导出日历</button>}{selected && <button type="button" className="text-action" onClick={() => { setHistoryItem(selected); setEditorOpen(false); setHistoryOpen(true); }}><History size={15} />续费流水</button>}</div><div className="dialog-right-actions"><button type="button" className="button light" onClick={() => setEditorOpen(false)}>取消</button><button type="submit" className="button primary" disabled={saving}>{saving ? "保存中…" : <><Check size={15} />保存</>}</button></div></div>
+      <div className="dialog-actions"><div className="dialog-left-actions">{selected && <button type="button" className="text-danger" onClick={() => setConfirmAction({ kind: "delete", item: selected })}><Trash2 size={15} />删除</button>}{selected && <button type="button" className="text-action" onClick={() => void downloadCalendar(selected,today)}><Download size={15} />导出日历</button>}{selected && <button type="button" className="text-action" onClick={() => { setHistoryItem(selected); setEditorOpen(false); setHistoryOpen(true); }}><History size={15} />续费流水</button>}</div><div className="dialog-right-actions"><button type="button" className="button light" onClick={() => setEditorOpen(false)}>取消</button><button type="submit" className="button primary" disabled={saving}>{saving ? "保存中…" : <><Check size={15} />保存</>}</button></div></div>
     </form></DialogContent></Dialog>
 
     <Dialog open={!authRequired && showReminders} onOpenChange={setShowReminders}><DialogContent className="membership-dialog">
       <CompactDialogHeader title="到期提醒" helpLabel="到期提醒说明" help={<><p>按每条订阅的提前提醒设置展示，打开对应订阅后可管理或记录续费。</p><p>网页内提醒只在打开页面时显示。导出 .ics 并导入日历后，可由日历应用通知；续费后需重新导出。</p></>} />
       {!authRequired && showReminders && <EmailReminders />}
-      <div className="reminder-list">{due.length ? due.map(item => <div key={item.id}><span><strong>{item.name}</strong><small>{item.endDate} · {money(item.amount, item.currency)}</small></span><b className={remaining(item, today) < 0 ? "red" : "amber"}>{remaining(item, today) < 0 ? `已过期 ${-remaining(item, today)} 天` : `${remaining(item, today)} 天后到期`}</b><button className="button light" aria-label={`管理${item.name}`} onClick={() => { setShowReminders(false); edit(item); }}>管理</button><button aria-label={`导出${item.name}日历`} className="icon-button" onClick={() => void downloadCalendar(item)}><Download size={16} /></button></div>) : <p className="muted">暂无到期提醒。</p>}</div>
+      <div className="reminder-list">{due.length ? due.map(item => <div key={item.id}><span><strong>{item.name}</strong><small>{item.endDate} · {money(item.amount, item.currency)}</small></span><b className={remaining(item, today) < 0 ? "red" : "amber"}>{remaining(item, today) < 0 ? `已过期 ${-remaining(item, today)} 天` : `${remaining(item, today)} 天后到期`}</b><button className="button light" aria-label={`管理${item.name}`} onClick={() => { setShowReminders(false); edit(item); }}>管理</button><button aria-label={`导出${item.name}日历`} className="icon-button" onClick={() => void downloadCalendar(item,today)}><Download size={16} /></button></div>) : <p className="muted">暂无到期提醒。</p>}</div>
     </DialogContent></Dialog>
 
     <AlertDialog open={!authRequired && Boolean(confirmAction)} onOpenChange={open => { if (!open && !saving) setConfirmAction(null); }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>删除这条订阅？</AlertDialogTitle><AlertDialogDescription>“{confirmAction?.item.name}”将从清单删除，已有续费流水仍保留。删除后不能在页面内撤销。</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel disabled={saving}>取消</AlertDialogCancel><AlertDialogAction variant="destructive" disabled={saving} onClick={event => { event.preventDefault(); void confirmChange(); }}>{saving ? "处理中…" : "确认删除"}</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>

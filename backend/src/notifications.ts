@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { dateInTimeZone } from "../../shared/billing.ts";
-import { remaining, type Subscription } from "../../shared/subscriptions.ts";
+import { remaining, remindersEnabled, type Subscription } from "../../shared/subscriptions.ts";
 import type { DeliveryState, EmailStatus, NotificationStatus } from "../../shared/notifications.ts";
 import { money } from "../../shared/currency.ts";
 import type { Config } from "./config.ts";
@@ -109,6 +109,7 @@ export class EmailNotificationService {
     const today = dateInTimeZone(now, this.config.timeZone), token = randomUUID();
     const candidates: Candidate[] = [];
     for (const item of this.subscriptions.list(owner).items) {
+      if (!remindersEnabled(item)) continue;
       const days = remaining(item, today);
       if (item.startDate <= today && days >= 0 && days <= item.reminderDays) candidates.push({ key: `${item.id}:${item.endDate}`, item, days });
       // Automatic renewal happens at midnight. Preserve same-day notifications for a zero-day lead.

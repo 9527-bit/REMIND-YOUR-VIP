@@ -89,7 +89,7 @@ export function BackupDialog({ open, onOpenChange, onImported }: Props) {
       {busy && <p className="muted" role="status">处理中，请稍候…</p>}
       {error && <div className="sync-banner" role="alert">{error}</div>}
       {preview && backup && <div className="backup-preview">
-        <p>文件校验通过：{preview.subscriptions} 条订阅、{preview.logs} 条流水。</p>
+        <p>文件校验通过：{preview.subscriptions} 条订阅、{preview.logs} 条流水{preview.phoneAccounts ? `、${preview.phoneAccounts} 个手机号码` : ""}。</p>
         <label><input type="radio" name="restore-mode" checked={mode === "merge"} disabled={busy} onChange={() => setMode("merge")} />合并导入</label>
         {mode === "merge" && <p>新增 {preview.newSubscriptions} 条订阅、{preview.newLogs} 条流水；跳过 {preview.skippedSubscriptions} 条同 ID 订阅，不覆盖已有数据。</p>}
         <label><input type="radio" name="restore-mode" checked={mode === "replace"} disabled={busy} onChange={() => setMode("replace")} />覆盖恢复</label>

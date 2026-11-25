@@ -33,6 +33,8 @@
 
 多币种测试覆盖 30 币种、v4 SQLite 原币与人民币金额无损迁入 v5、旧备份与 v2 备份恢复、普通编辑保留购买日汇率、手动/自动续期建立新账期参考汇率、撤销恢复旧快照、流水快照不随编辑变化、分类/周期/币种总额核对和空报表。汇率查询使用受控响应测试日期参数、周末报价、缓存过期、同键合并、币对错误、未来/陈旧报价和失败重试；不把外部服务实时可用作为单元测试前提。
 
+固定支出测试覆盖 v9→v10 迁移、默认静默、按月账单去重、月末/停机补齐、价格和分类快照、主动自动记账、作废后补录、暂停恢复及 v4/旧备份导入。
+
 ### 隔离浏览器回归
 
 邮件测试使用模拟发送器和本机 SMTP fixture，不使用真实授权码、不向外部邮箱发信。覆盖 TLS 选项、中文 MIME、提交后断连、总时限、私有配置、错误脱敏、按时区扫描、按到期日去重、持久化冷却、跨账号隔离、并发领取、失败退避、结果未确认及调度停止。真实 QQ 接收和手机通知须用部署后的测试邮件单独验收。
@@ -45,11 +47,13 @@ npm run build
 npm run test:browser
 ```
 
-测试用内存数据库和随机生成的临时账号，不读取 .env，不访问正式服务，所有增删/导入仅针对内存测试数据。覆盖真实生产前端的日期联动、模板、详情内快捷续费/撤销及未保存保护、汇率查询/手填、流水、JSON 下载/合并/覆盖、当前大盘和已确认付款报表，以及 320/375/390/768 像素紧凑视图；截图保存在被忽略的 outputs/browser-tests。可以设置 PLAYWRIGHT_MODULE 指向已有 Playwright 的 index.mjs，BROWSER_CHANNEL=msedge 使用现有 Edge。BROWSER_CHANNEL=chrome 可复用本机 Chrome。VIP_TEST_OUTPUT_DIR 和 VIP_HISTORY_OUTPUT_DIR 可指定两个脚本的截图保存目录。npm run check 不启动浏览器；Ubuntu CI 单独执行两组浏览器回归。
+测试用内存数据库和随机生成的临时账号，不读取 .env，不访问正式服务，所有增删/导入仅针对内存测试数据。覆盖真实生产前端的日期联动、模板、详情内快捷续费/撤销及未保存保护、汇率查询/手填、流水、JSON 下载/合并/覆盖、当前大盘和已确认付款报表，以及 320/375/390/768 像素紧凑视图；截图保存在被忽略的 outputs/browser-tests。可以设置 PLAYWRIGHT_MODULE 指向已有 Playwright 的 index.mjs，BROWSER_CHANNEL=msedge 使用现有 Edge。BROWSER_CHANNEL=chrome 可复用本机 Chrome。VIP_TEST_OUTPUT_DIR、VIP_HISTORY_OUTPUT_DIR 和 VIP_FIXED_OUTPUT_DIR 可分别指定三组脚本的截图目录。npm run check 不启动浏览器；Ubuntu CI 单独执行三组浏览器回归。
 
 `test-history-deletion.mjs` 单独验证未撤销流水没有删除入口、取消/失败保留记录、确认删除不改账期、删除末页最后一条后正确翻页，以及 320 像素布局；截图位于 `outputs/history-deletion-tests`。
 
 生产依赖可另行运行 npm audit --omit=dev；结果会随公告变化，不代表永久安全。
+
+`scripts/test-fixed-expenses.mjs` 使用受控应用时间和模拟通知发送器，覆盖新增话费、独立提醒开关、无闹钟日历、固定支出筛选、自动/手动记账、改价历史、月末、暂停恢复和 320–1440 像素布局。
 
 ## GitHub Actions
 
@@ -94,3 +98,5 @@ CI 通过不代表你的域名、证书、服务器网络或手机日历已经�
 ## 修改原则
 
 数据库变更必须增加版本化迁移和备份/回退说明；修改续费逻辑必须补充日期测试；新增依赖要说明用途并保留许可证。不要提交占位实现、生产密码或真实数据。
+
+`node scripts/test-phones.mjs` 使用独立内存数据库和虚构号码，验证一号一卡、年包折算、一次性费用、付款确认、旧话费关联及 320–1440 像素布局；默认截图保存到 `~/Desktop/CodexArtifacts/vip-manager/phone-tests/`，可用 `VIP_PHONE_OUTPUT_DIR` 覆盖。

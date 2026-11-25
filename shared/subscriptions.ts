@@ -9,13 +9,23 @@ export function normalizeCategory(value: unknown): unknown {
 }
 export const cycles = { monthly: "月付", quarterly: "季付", yearly: "年付", custom: "自定义" } as const;
 export type Subscription = CurrencySnapshot & {
+  expenseType?: "subscription" | "fixed" | "phone";
+  phoneAccountId?: string;
+  phoneChargeType?: "monthly" | "yearly" | "once";
+  reminderEnabled?: boolean;
+  autoRecord?: boolean;
+  billingDay?: number;
   ratePending?: boolean;
   coverageStartDate?: string;
   id: string; name: string; plan: string; category: string; amount: number;
   cycle: keyof typeof cycles; customDays: number; startDate: string; endDate: string;
   reminderDays: number; autoRenew: boolean; note: string; color: string; version: number;
 };
-export type DashboardSnapshot = { items: Subscription[]; canManage: boolean; publicDashboard: boolean; today: string; timeZone: string };
+export function isFixedExpense(item: Pick<Subscription, "expenseType">): boolean { return item.expenseType === "fixed" || item.expenseType === "phone"; }
+export function remindersEnabled(item: Pick<Subscription, "expenseType" | "reminderEnabled">): boolean {
+  return item.reminderEnabled ?? !isFixedExpense(item);
+}
+export type DashboardSnapshot = { items: Subscription[]; phoneAccounts?: import("./phones.ts").PhoneAccount[]; canManage: boolean; publicDashboard: boolean; today: string; timeZone: string };
 export const palette = ["#d74747", "#269979", "#497ccd", "#8a5fc4", "#cf8b30", "#3b424c"];
 export function dateKey(date = new Date()): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
@@ -28,6 +38,7 @@ export function stateOf(item: Subscription, today: string) {
   return days < 0 ? "expired" : days <= item.reminderDays ? "soon" : "healthy";
 }
 export function monthlyCost(item: Subscription): number {
+  if (item.phoneChargeType === "once") return 0;
   return item.amount / (item.cycle === "yearly" ? 12 : item.cycle === "quarterly" ? 3 : item.cycle === "custom" ? item.customDays / 30 : 1);
 }
 /** A pending snapshot cannot provide a known RMB amount. */

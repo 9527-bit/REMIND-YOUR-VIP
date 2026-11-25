@@ -40,6 +40,8 @@
 - undoRenew：id、version、logId。仅在手动续费后 30 秒且当前版本仍等于该流水结果版本时允许；返回恢复后的 item，流水标记 undoneAt 而不是删除。
 - delete：id、version。
 
+会员记录字段新增 expenseType（subscription/fixed/phone，默认 subscription）、reminderEnabled（固定支出默认 false，普通订阅默认 true）、autoRecord（默认 false，固定支出与号码费用可开启）、billingDay（只读，固定支出续费锚点的日期）。
+
 会员记录字段：id、name、plan、category、amount、currency、purchaseDate、fxRateToCny、fxRateDate、fxRateSource、cycle、customDays、startDate、endDate、reminderDays、autoRenew、note、color、version。
 
 **v5 及以后的 amount 是原币金额，不再是旧 v4 的人民币折算值**，最多两位小数，范围 0–10,000,000。currency 使用 [币种清单](../shared/currency.ts) 中的 30 个代码；fxRateToCny 为每单位原币对应的人民币数（大于 0、不超过 100,000）。外币必须提供完整的购买日期、报价日期、汇率与来源；fxRateDate 不得晚于 purchaseDate。fxRateSource 为 manual 或 frankfurter。省略币种的旧记录按 CNY 处理，人民币汇率只能为 1。日期为 YYYY-MM-DD，1900–2200 年，endDate 必须大于 startDate。006 迁移增加邮件提醒发送去重与失败重试记录，不改变会员账期数据。
@@ -68,12 +70,32 @@ startDate/endDate 是本期账期边界，不是最早开通时间。autoRenew=t
 
 entries 每项为 amount、currency、paidOn、startDate、endDate、note；1–36 项，金额最多两位小数。paidOn 必须不晚于应用时区的今天；服务账期可在未来，以支持提前付款。新记录按 paidOn 查询汇率，返回 rate、rateDate 和 rateBasisDate；rateBasisDate 固定为初次确认付款日期，后续更正 paidOn 不重定价。没有 rateBasisDate 的旧流水保留原账期开始日汇率。备份保留这些快照，接受报价日期不晚于相应基准日期的旧/新格式。
 
-支出分析的消费金额、趋势和分类只统计未作废且 paidOn 已发生的已确认付款。尚未确认的账期变更及订阅登记价格不构成消费。月均支出与到期预算分别为估算；未知汇率显示待补全，不按 1:1 计入。首页 30 天预算按到期日与登记价格计算，不核实服务商扣款；月度待付清单还排除已确认覆盖该账期的付款。
+支出分析的消费金额、趋势和分类只统计未作废且 paidOn 已发生的已确认付款。尚未确认的账期变更及订阅登记价格不构成消费；用户主动开启的固定支出自动记账按所登记金额计入，并通过 source=fixed 标识。月均支出与到期预算分别为估算；未知汇率显示待补全，不按 1:1 计入。首页 30 天预算按到期日与登记价格计算，不核实服务商扣款；月度待付清单还排除已确认覆盖该账期的付款。
+
+## 固定支出
+
+expenseType=fixed 仅支持 cycle=monthly，autoRenew 控制是否持续生成账单；autoRecord 控制新账单是否自动记为已支付，必须由用户主动开启。创建或后台扫描时，从所填本期账单日开始逐期生成至当前期；未来账期不会提前生成。每个用户、记录和账期开始日只有一个 fixedBill，重复扫描和重启不重复生成。
+
+固定账单保存在同一流水表，kind=automatic、periods=1、前后账期相同，fixedBill 保存当期 category、plan 与 autoRecord 快照。自动付款的 payment.source=fixed，paidOn 为账期开始日，按所登记金额和锁定汇率记账；rateBasisDate 保留登记汇率基准，不会查询并重写历史汇率。缺失汇率时账单保留待确认，不自动冒充付款。以后编辑金额、分类、套餐或自动记账开关不回写旧账单。
+
+暂停时 autoRenew=false，恢复时跳过暂停期间，只从恢复时所在账期继续生成。停机期间仍保持启用的记录会补齐遗漏账期，每次每条记录最多推进 120 期，后续扫描继续。固定支出不接受手动 renew；账单确认、作废、更正付款日及更正金额后的补录沿用付款接口。自动记账不操作运营商账号，也不核实真实扣款。
+
+reminderEnabled=false 对邮件、Bark 及自动续期零天提醒分支均生效。会员到期雷达排除固定支出，月均预算仍包括有效固定支出。
 
 ## JSON 格式与并发恢复
 
-格式：application 为 vip-manager、formatVersion 导出为 3（导入接受 1、2 和 3）、顶层 currency 为 CNY（报表本位币），另有 exportedAt、subscriptions、renewalLogs。每项保存自身原币金额及完整汇率快照；订阅增加 renewalAnchorDate；流水字段见 [shared/renewals.ts](../shared/renewals.ts)。历史未知金额为 null，不能伪造为 0；删除订阅不删除新流水。旧人民币备份自动补齐 CNY/1，旧 v4 币种字段按上述规则升级。私人接口始终鉴权，公开看板不返回流水/锚点。
+格式：application 为 vip-manager、formatVersion 导出为 5（导入接受 1–5）、顶层 currency 为 CNY（报表本位币），另有 exportedAt、subscriptions、renewalLogs、phoneAccounts。每项保存自身原币金额及完整汇率快照；订阅增加 renewalAnchorDate；流水字段见 [shared/renewals.ts](../shared/renewals.ts)。历史未知金额为 null，不能伪造为 0；删除订阅不删除新流水。旧人民币备份自动补齐 CNY/1，旧 v4 币种字段按上述规则升级。私人接口始终鉴权，公开看板不返回流水/锚点。
 
 preview 返回 revision、subscriptions、logs、existing、newSubscriptions、skippedSubscriptions、newLogs。import 必须提交原 revision 作为 expectedRevision，预览后任何业务变化会返回 409。mode=merge 只插入新 ID；mode=replace 还必须 confirmReplace=true，替换当前用户业务数据，不改变账号。成功返回 importedSubscriptions、importedLogs、skippedSubscriptions。导入后的版本递增，旧表单失效，导入流水不可快捷撤销。
 
 所有文件在写入前完成日期、金额、ID 唯一性、账期锚点、格式版本校验，写入过程事务化。普通请求体 20 KB；仅已鉴权的两个导入端点允许 20 MB，最多 2,000 条订阅和 10,000 条流水。
+
+
+## 手机号码与费用
+
+- `GET /api/phones` 返回当前登录用户的 `items` 号码列表；`POST /api/phones` 接受 `action=create/update/delete`。创建提交 `item`；更新同时提交 `id`、`version`、完整 `item`；删除提交 `id` 和 `version`。均要求登录与原有 CSRF/Origin 校验。
+- 号码字段：`id`、`label`（1–30 字）、`number`（11 位手机号）、`carrier`（中国移动/中国联通/中国电信/中国广电/其他）、`note`、`balance`（人民币，可负，可为 null）、`balanceAsOf`（余额核对日期，与余额同时为空或同时填写）、`version`。号码在同一用户内唯一；带费用项目的号码不能直接删除。
+- 号码子项目复用 `/api/subscriptions`，`expenseType=phone`，必填 `phoneAccountId` 与 `phoneChargeType=monthly/yearly/once`，人民币计价。月付和年付周期分别是 monthly、yearly；once 使用 custom/1 天且不能自动顺延或开启提醒。所属号码须属于当前用户，关联后的费用不能直接换号。
+- 手机费用按对应周期生成固定账单快照；一次性费用仅在发生日期或之后生成一次。`autoRenew=false` 的号码费用仍记录本期，不生成后续期。付款沿用已有 `/api/payments/*`，修改套餐不回写历史账单。
+- 登录后的 `/api/dashboard` 增加 `phoneAccounts`；公开看板不返回该字段，并排除全部 `expenseType=phone` 子项目。
+- v5 备份包含 `phoneAccounts` 与子项目关联。导入先校验号码引用、号码唯一性，再原子恢复；revision 包含号码状态。导入旧格式时缺失号码列表视为空。
